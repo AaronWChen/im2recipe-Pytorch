@@ -1,0 +1,21 @@
+[project]
+name = "im2recipe-pytorch"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "black>=26.5.1",
+    "gensim>=4.4.0",
+    "lmdb>=2.3.0",
+    "matplotlib>=3.11.2",
+    "nltk>=3.10.3",
+    "numpy>=2.5.3",
+    "pillow>=12.3.0",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "stanza>=1.14.0",
+    "torch>=2.14.0",
+    "torchvision>=0.29.0",
+    "tqdm>=4.70.1",
+]
