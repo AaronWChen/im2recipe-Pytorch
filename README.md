@@ -117,7 +117,9 @@ Training word2vec with recipe data:
 
 ### Skip-instructions (Torch)
 
-In this repository the Skip-instructions is not implemented in Pytorch, instead we provide the necessary files to train, validate and test tri_joint model. 
+~~In this repository the Skip-instructions is not implemented in Pytorch, instead we provide the necessary files to train, validate and test tri_joint model.~~
+
+Skipthoughts-pytorch implementation has been added as a subtree and will be used to retrain the skipthoughts model
 
 ### Creating LMDB file
 
