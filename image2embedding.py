@@ -1,20 +1,16 @@
-import time
+# import time
 import torch
-import torch.nn as nn
+# import torch.nn as nn
 import torch.nn.parallel
-# import torch.optim
-# import torch.utils.data
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
-import torch.backends.cudnn as cudnn
-# from data_loader import ImagerLoader # our data_loader
-import numpy as np
+# import torchvision.models as models
+# import torch.backends.cudnn as cudnn
+# import numpy as np
 from trijoint import im2recipe
 import pickle
 from args import get_parser
 from PIL import Image
-import sys
+# import sys
 import os
 
 # =============================================================================
@@ -32,7 +28,6 @@ def norm(input, p=2, dim=1, eps=1e-12):
     return input / input.norm(p,dim,keepdim=True).clamp(min=eps).expand_as(input)
 
 def main():
-   
     im_path = opts.test_image_path
     ext = os.path.basename(im_path).split('.')[-1]
     if ext not in ['jpeg','jpg','png']:

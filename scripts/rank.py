@@ -2,7 +2,6 @@ import os
 import random
 import numpy as np
 import utils
-import torchfile
 import pickle
 import sys
 sys.path.append("..")

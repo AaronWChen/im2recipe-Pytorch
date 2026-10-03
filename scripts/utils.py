@@ -1,5 +1,4 @@
 from collections import defaultdict
-# import HTMLParser
 from html.parser import HTMLParser
 import copy
 import os

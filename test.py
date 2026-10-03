@@ -5,7 +5,7 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
+# import torchvision.datasets as datasets
 import torchvision.models as models
 import torch.backends.cudnn as cudnn
 from data_loader import ImagerLoader # our data_loader
