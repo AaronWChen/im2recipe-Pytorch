@@ -1,10 +1,9 @@
 import os
 import random
 import numpy as np
-import utils
 import pickle
 import sys
-sys.path.append("..")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root, for args.py
 from args import get_parser
 
 # =============================================================================

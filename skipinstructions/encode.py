@@ -1,6 +1,6 @@
 """Encode every instruction of a partition into a skip-instruction vector.
 
-    python -m skipinstr.encode --checkpoint runs/skip1/skipinstr-best.pt \
+    python -m skipinstructions.encode --checkpoint runs/skip1/skipinstructions-best.pt \
         --sentences instructions_train.txt --index instructions_train.index.tsv \
         --out-prefix data/train
 

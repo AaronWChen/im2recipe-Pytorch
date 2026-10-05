@@ -1,12 +1,17 @@
 from collections import defaultdict
-from html.parser import HTMLParser
+# import HTMLParser
 import copy
+import html
 import os
 import random
 import re
 import unicodedata
+import urllib.parse
 
-import simplejson as json
+try:
+    import simplejson as json
+except ImportError:  # the standard library is enough
+    import json
 import numpy as np
 
 def dspath(ext, ROOT, **kwargs):
@@ -53,20 +58,15 @@ REPLACEMENTS = {
     '\\u0302': '', '\\uf0b0': ''
 }
 
-parser = HTMLParser()
 def prepro_txt(text):
-    import urllib
+    text = html.unescape(text)
 
-    text = parser.unescape(text)
-
-    for unichar, replacement in REPLACEMENTS.iteritems():
+    for unichar, replacement in REPLACEMENTS.items():
         text = text.replace(unichar, replacement)
-    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore')
+    text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
 
-    try:
-        text = urllib.unquote(text).decode('ascii')
-    except UnicodeDecodeError:
-        pass # if there's an errant %, unquoting will yield an invalid char
+    # an errant % is left as is; invalid escapes are replaced instead of raising
+    text = urllib.parse.unquote(text, errors='replace')
 
     # some extra tokenization
     text = ' - '.join(text.split('-'))
@@ -85,8 +85,8 @@ def align(haystack, needle):
     hsz = len(haystack)
     nsz = len(needle)
     s = defaultdict(lambda: (0, 'v'))
-    for i in xrange(hsz-1, -1, -1):
-        for j in xrange(min(nsz, i+1)-1, max(0, i-hsz+nsz)-1, -1):
+    for i in range(hsz-1, -1, -1):
+        for j in range(min(nsz, i+1)-1, max(0, i-hsz+nsz)-1, -1):
             opts = [(s[(i+1, j)][0]-1 if i < hsz-nsz+j else float('-inf'), 'v')]
             if haystack[i] == needle[j]:
                 opts.append((s[(i+1, j+1)][0]+1, 'd'))
@@ -94,7 +94,7 @@ def align(haystack, needle):
 
     alignment = np.zeros(hsz, dtype='uint8')
     parent = (0, 0)
-    for i in xrange(hsz):
+    for i in range(hsz):
         p = s[parent][1]
         alignment[i] = p == 'd'
         parent = (parent[0]+1, parent[1]+(p == 'd'))
@@ -102,13 +102,13 @@ def align(haystack, needle):
 
 def vstack(part_lists, dtype=None):
     part_vecs = {}
-    for part, veclist in part_lists.iteritems():
+    for part, veclist in part_lists.items():
         part_vecs[part] = np.array(veclist, dtype=dtype)
     return part_vecs
 
 def mstack(part_lists, maxlen, dtype=None):
     part_mats = {}
-    for part, lists in part_lists.iteritems():
+    for part, lists in part_lists.items():
         dim = maxlen[part] if isinstance(maxlen, dict) else maxlen
         part_mat = np.zeros((len(lists), dim), dtype=dtype)
         for i, lst in enumerate(lists):

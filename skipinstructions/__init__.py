@@ -1,4 +1,4 @@
-"""skipinstr: skip-thought sentence encoder for recipe instructions.
+"""skipinstructions: skip-thought sentence encoder for recipe instructions.
 
 A modernized PyTorch port of the UniSkip model from sanyam5/skip-thoughts,
 plus the tooling needed to feed the im2recipe trijoint model:

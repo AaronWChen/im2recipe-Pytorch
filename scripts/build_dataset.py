@@ -130,7 +130,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dataset", default="../data/recipe1M/", help="folder with layer1.json, layer2.json, det_ingrs.json")
     p.add_argument("--vocab", default="../data/text/vocab.txt", help="ingredient vocabulary (one word per line)")
-    p.add_argument("--classes", default="classes1M.pkl")
+    p.add_argument("--classes", default="../data/classes1M.pkl")
     p.add_argument("--remove", default=os.path.join(HERE, "remove1M.txt"))
     p.add_argument("--skip-dir", default="../data/skipinstr", help="folder with <partition>.encs.npy / .index.json")
     p.add_argument("--out-dir", default="../data/")

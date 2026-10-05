@@ -1,10 +1,9 @@
 """End-to-end test of the data path on a tiny synthetic Recipe1M:
 
-    tokenize_instructions -> skipinstr.train -> skipinstr.encode -> scripts/build_dataset -> ImagerLoader
+    tokenize_instructions -> skipinstructions.train -> skipinstructions.encode -> scripts/build_dataset -> ImagerLoader
 """
 import json
 import os
-import pickle
 
 import numpy as np
 import pytest
@@ -17,64 +16,7 @@ import proc
 import utils
 from data_loader import ImagerLoader
 from recipe_store import RecipeStore, write_store
-from skipinstr import encode, train
-from skipinstr.tokenize_instructions import process
-
-DIM = 24
-STEPS = ["chop the onion", "heat the olive oil", "add garlic and stir", "cook for ten minutes",
-         "season with salt", "serve warm"]
-INGREDIENTS = ["onion", "olive oil", "garlic", "salt"]
-
-
-def make_dataset(root, n=48):
-    """Recipes r0..r{n-1}: partitions 60/20/20. Some have no images, too many instructions, etc."""
-    layer1, layer2, det, classes = [], [], [], {}
-    for i in range(n):
-        part = "train" if i < int(n * 0.6) else ("val" if i < int(n * 0.8) else "test")
-        k = 3 + i % 4
-        if i == 5:
-            k = 25  # too many instructions -> filtered
-        instrs = [{"text": STEPS[j % len(STEPS)] + " ."} for j in range(k)]
-        layer1.append({"id": f"r{i}", "partition": part, "instructions": instrs})
-        if i != 4:  # r4 has no images -> filtered
-            layer2.append({"id": f"r{i}", "images": [{"id": f"{i:02d}abcdef{j}.jpg"} for j in range(1 + i % 7)]})
-        det.append({"id": f"r{i}", "ingredients": [{"text": t} for t in INGREDIENTS[: 1 + i % 4]],
-                    "valid": [True] * (1 + i % 4)})
-        classes[f"r{i}"] = i % 5
-    for name, obj in (("layer1", layer1), ("layer2", layer2), ("det_ingrs", det)):
-        with open(os.path.join(root, name + ".json"), "w") as f:
-            json.dump(obj, f)
-    with open(os.path.join(root, "vocab.txt"), "w") as f:
-        f.write("\n".join(t.replace(" ", "_") for t in INGREDIENTS) + "\n")
-    with open(os.path.join(root, "classes.pkl"), "wb") as f:
-        pickle.dump(classes, f)
-        pickle.dump({v: k for k, v in classes.items()}, f)
-    with open(os.path.join(root, "remove.txt"), "w") as f:
-        f.write("r0\nr1\n")  # r0 is the FIRST entry: the old dict-based lookup never removed it
-
-
-@pytest.fixture(scope="module")
-def pipeline(tmp_path_factory):
-    root = tmp_path_factory.mktemp("recipe1M")
-    make_dataset(str(root))
-    skip_text = root / "text"
-    process(str(root / "layer1.json"), str(root / "det_ingrs.json"), str(skip_text))
-    run = root / "run"
-    train.run(train.parse_args([
-        "--train-file", str(skip_text / "instructions_train.txt"), "--train-index", str(skip_text / "instructions_train.index.tsv"),
-        "--out-dir", str(run), "--maxlen", "10", "--word-size", "16", "--thought-size", str(DIM),
-        "--batch-size", "16", "--iters", "30", "--log-every", "1000", "--eval-every", "1000",
-        "--save-every", "30", "--device", "cpu"]))
-    for part in ("train", "val", "test"):
-        encode.main(["--checkpoint", str(run / "skipinstr-last.pt"),
-                     "--sentences", str(skip_text / f"instructions_{part}.txt"),
-                     "--index", str(skip_text / f"instructions_{part}.index.tsv"),
-                     "--out-prefix", str(root / "skipinstr" / part), "--batch-size", "8", "--device", "cpu"])
-    build_dataset.main(["--dataset", str(root), "--vocab", str(root / "vocab.txt"), "--classes", str(root / "classes.pkl"),
-                        "--remove", str(root / "remove.txt"), "--skip-dir", str(root / "skipinstr"),
-                        "--out-dir", str(root / "data")])
-    return root
-
+from synthetic import DIM
 
 def test_filters_and_counts(pipeline):
     stores = {p: RecipeStore(str(pipeline / "data" / f"{p}_store")) for p in ("train", "val", "test")}
@@ -88,8 +30,8 @@ def test_filters_and_counts(pipeline):
 
 def test_vectors_match_encoder_output(pipeline):
     store = RecipeStore(str(pipeline / "data" / "train_store"))
-    encs = np.load(str(pipeline / "skipinstr" / "train.encs.npy"))
-    index = json.load(open(str(pipeline / "skipinstr" / "train.index.json")))
+    encs = np.load(str(pipeline / "skipinstructions" / "train.encs.npy"))
+    index = json.load(open(str(pipeline / "skipinstructions" / "train.index.json")))
     start = dict(zip(index["ids"], index["starts"]))
     rlen = dict(zip(index["ids"], index["rlens"]))
     for i in range(len(store)):
@@ -114,13 +56,6 @@ def test_recipe_fields(pipeline):
 def test_loader_end_to_end(pipeline):
     img_root = pipeline / "images"
     store = RecipeStore(str(pipeline / "data" / "train_store"))
-    for part in ("train", "val", "test"):
-        s = RecipeStore(str(pipeline / "data" / f"{part}_store"))
-        for i in range(len(s)):
-            for name in s.image_names(i):
-                d = img_root.joinpath(*name[:4])
-                d.mkdir(parents=True, exist_ok=True)
-                Image.new("RGB", (40, 30), (i * 5 % 255, 80, 120)).save(d / name)
     tf = transforms.Compose([transforms.Resize(16), transforms.CenterCrop(16), transforms.ToTensor()])
 
     ds = ImagerLoader(str(img_root), transform=tf, data_path=str(pipeline / "data"), partition="train", sem_reg=True)
@@ -145,7 +80,7 @@ def test_loader_end_to_end(pipeline):
 def test_float16_build_halves_the_vectors(pipeline, tmp_path):
     out = tmp_path / "data16"
     build_dataset.main(["--dataset", str(pipeline), "--vocab", str(pipeline / "vocab.txt"), "--classes", str(pipeline / "classes.pkl"),
-                        "--remove", str(pipeline / "remove.txt"), "--skip-dir", str(pipeline / "skipinstr"),
+                        "--remove", str(pipeline / "remove.txt"), "--skip-dir", str(pipeline / "skipinstructions"),
                         "--out-dir", str(out), "--dtype", "float16"])
     s16 = RecipeStore(str(out / "train_store"))
     s32 = RecipeStore(str(pipeline / "data" / "train_store"))

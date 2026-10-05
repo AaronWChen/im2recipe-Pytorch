@@ -1,16 +1,14 @@
-import word2vec
-import sys
-import os
+"""Write vocab.txt (the words of a word2vec .bin, one per line, in file order) next to the .bin.
 
-'''
 Usage: python get_vocab.py /path/to/vocab.bin
-'''
-w2v_file = sys.argv[1]
-model = word2vec.load(w2v_file)
+"""
+import os
+import sys
 
-vocab =  model.vocab
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from word2vec_io import write_vocab_txt  # noqa: E402
 
-print("Writing to %s..." % os.path.join(os.path.dirname(w2v_file),'vocab.txt'))
-f = open(os.path.join(os.path.dirname(w2v_file),'vocab.txt'),'w')
-f.write("\n".join(vocab))
-f.close()
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    print("Wrote %s" % write_vocab_txt(sys.argv[1]))

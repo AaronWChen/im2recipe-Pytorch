@@ -1,5 +1,4 @@
-FROM python:3.7.3-slim-stretch
-ENV DEBIAN_FRONTEND noninteractive
+FROM astral:3.13-trixi-slim
 RUN apt-get -qq update && \
     apt-get -qq install gcc g++ && \
     apt-get --purge autoremove --yes && \

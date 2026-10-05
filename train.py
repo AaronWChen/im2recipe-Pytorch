@@ -8,27 +8,24 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
-# import torchvision.datasets as datasets
-import torchvision.models as models
 import torch.backends.cudnn as cudnn
 from data_loader import ImagerLoader 
 from args import get_parser
 from trijoint import im2recipe
+from checkpoint_io import load_checkpoint
 
-# =============================================================================
-parser = get_parser()
-opts = parser.parse_args()
-# =============================================================================
-
-if not(torch.cuda.device_count()):
-    device = torch.device(*('cpu',0))
-else:
+def get_device(opts):
+    if not torch.cuda.device_count():
+        return torch.device('cpu', 0)
     torch.cuda.manual_seed(opts.seed)
-    device = torch.device(*('cuda',0))
+    return torch.device('cuda', 0)
 
-def main():
+def main(opts=None):
+    if opts is None:
+        opts = get_parser().parse_args()
+    device = get_device(opts)
 
-    model = im2recipe()
+    model = im2recipe(opts, pretrained=not opts.no_pretrained)
     model.visionMLP = torch.nn.DataParallel(model.visionMLP)
     model.to(device)
 
@@ -58,7 +55,7 @@ def main():
     if opts.resume:
         if os.path.isfile(opts.resume):
             print("=> loading checkpoint '{}'".format(opts.resume))
-            checkpoint = torch.load(opts.resume)
+            checkpoint = load_checkpoint(opts.resume, device, opts.trust_checkpoint)
             opts.start_epoch = checkpoint['epoch']
             best_val = checkpoint['best_val']
             model.load_state_dict(checkpoint['state_dict'])
@@ -88,7 +85,7 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         ImagerLoader(opts.img_path,
             transforms.Compose([
-            transforms.Scale(256), # rescale the image keeping the original aspect ratio
+            transforms.Resize(256), # rescale the image keeping the original aspect ratio
             transforms.CenterCrop(256), # we get only the center of that rescaled
             transforms.RandomCrop(224), # random crop within the center crop 
             transforms.RandomHorizontalFlip(),
@@ -103,7 +100,7 @@ def main():
     val_loader = torch.utils.data.DataLoader(
         ImagerLoader(opts.img_path,
             transforms.Compose([
-            transforms.Scale(256), # rescale the image keeping the original aspect ratio
+            transforms.Resize(256), # rescale the image keeping the original aspect ratio
             transforms.CenterCrop(224), # we get only the center of that rescaled
             transforms.ToTensor(),
             normalize,
@@ -116,11 +113,11 @@ def main():
     for epoch in range(opts.start_epoch, opts.epochs):
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch)
+        train(train_loader, model, criterion, optimizer, epoch, opts, device)
 
         # evaluate on validation set
         if (epoch+1) % opts.valfreq == 0 and epoch != 0:
-            val_loss = validate(val_loader, model, criterion)
+            val_loss = validate(val_loader, model, criterion, opts, device)
         
             # check patience
             if val_loss >= best_val:
@@ -140,16 +137,16 @@ def main():
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
-                'best_val': best_val,
+                'best_val': float(best_val),
                 'optimizer': optimizer.state_dict(),
                 'valtrack': valtrack,
                 'freeVision': opts.freeVision,
-                'curr_val': val_loss,
-            }, is_best)
+                'curr_val': float(val_loss),
+            }, is_best, opts)
 
             print('** Validation: %f (best) - %d (valtrack)' % (best_val, valtrack))
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch, opts, device):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     cos_losses = AverageMeter()
@@ -193,13 +190,13 @@ def train(train_loader, model, criterion, optimizer, epoch):
                     opts.cls_weight * rec_loss 
 
             # measure performance and record losses
-            cos_losses.update(cos_loss.data, input[0].size(0))
-            img_losses.update(img_loss.data, input[0].size(0))
-            rec_losses.update(rec_loss.data, input[0].size(0))
+            cos_losses.update(cos_loss.item(), input[0].size(0))
+            img_losses.update(img_loss.item(), input[0].size(0))
+            rec_losses.update(rec_loss.item(), input[0].size(0))
         else:
             loss = criterion(output[0], output[1], target_var[0])
             # measure performance and record loss
-            cos_losses.update(loss.data[0], input[0].size(0))
+            cos_losses.update(loss.item(), input[0].size(0))
 
         # compute gradient and do Adam step
         optimizer.zero_grad()
@@ -226,7 +223,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                    epoch, loss=cos_losses, visionLR=optimizer.param_groups[1]['lr'],
                    recipeLR=optimizer.param_groups[0]['lr']))                 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, criterion, opts, device):
     batch_time = AverageMeter()
     cos_losses = AverageMeter()
     if opts.semantic_reg:
@@ -339,7 +336,7 @@ def rank(opts, img_embeds, rec_embeds, rec_ids):
 
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, opts, filename='checkpoint.pth.tar'):
 
     filename = opts.snapshots + 'model_e%03d_v-%.3f.pth.tar' % (state['epoch'],state['best_val']) 
     if is_best:

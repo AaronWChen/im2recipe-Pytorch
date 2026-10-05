@@ -1,6 +1,6 @@
 """Train the skip-thought model on one-instruction-per-line text.
 
-    python -m skipinstr.train --train-file instructions_train.txt \
+    python -m skipinstructions.train --train-file instructions_train.txt \
         --train-index instructions_train.index.tsv --out-dir runs/skip1
 """
 import argparse
@@ -22,7 +22,7 @@ def parse_args(argv=None):
     p.add_argument("--train-index", default=None, help="recipe index; masks pairs that cross recipes")
     p.add_argument("--val-file", default=None)
     p.add_argument("--val-index", default=None)
-    p.add_argument("--out-dir", default="skipinstr_out")
+    p.add_argument("--out-dir", default="skipinstructions_out")
     p.add_argument("--vocab", default=None, help="default: <out-dir>/vocab.txt, built from the train file if missing")
     p.add_argument("--vocab-size", type=int, default=20000)
     p.add_argument("--min-count", type=int, default=1)
@@ -121,11 +121,11 @@ def run(args):
             print(f"iter {it}  {'val' if val else 'train(trailing)'} loss {metric:.4f}  best {min(best, metric):.4f}")
             if metric < best:
                 best = metric
-                save_checkpoint(os.path.join(args.out_dir, "skipinstr-best.pt"), model, optimizer, it, config, best)
+                save_checkpoint(os.path.join(args.out_dir, "skipinstuctionsr-best.pt"), model, optimizer, it, config, best)
         if it % args.save_every == 0:
-            save_checkpoint(os.path.join(args.out_dir, "skipinstr-last.pt"), model, optimizer, it, config, best)
+            save_checkpoint(os.path.join(args.out_dir, "skipinstructions-last.pt"), model, optimizer, it, config, best)
 
-    save_checkpoint(os.path.join(args.out_dir, "skipinstr-last.pt"), model, optimizer, args.iters, config, best)
+    save_checkpoint(os.path.join(args.out_dir, "skipinstructions-last.pt"), model, optimizer, args.iters, config, best)
     return history
 
 

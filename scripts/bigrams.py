@@ -95,7 +95,7 @@ else:
             title = entry['title'].lower()
             id = entry['id']
 
-            if query in title and ninstrs < params.maxlen and imgs and ningrs<params.maxlen and ningrs is not 0: # if match, add class to id
+            if query in title and ninstrs < params.maxlen and imgs and ningrs<params.maxlen and ningrs != 0: # if match, add class to id
                 # we only add if previous class was background
                 # or if there is no class for the id
                 if id in class_dict:
@@ -143,7 +143,7 @@ else:
             title = entry['title'].lower()
             id = entry['id']
 
-            if query in title and ninstrs < params.maxlen and imgs and ningrs<params.maxlen and ningrs is not 0: # if match, add class to id
+            if query in title and ninstrs < params.maxlen and imgs and ningrs<params.maxlen and ningrs != 0: # if match, add class to id
                 # we only add if previous class was background
                 # or if there is no class for the id
                 if id in class_dict:

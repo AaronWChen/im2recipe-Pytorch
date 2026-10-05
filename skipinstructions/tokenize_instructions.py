@@ -1,6 +1,6 @@
 """Tokenize Recipe1M instructions, one instruction per line.
 
-    python -m skipinstr.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstr
+    python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstructions
 
 For each partition (train / val / test) this writes
     instructions_<part>.txt         one tokenized instruction per line, recipes contiguous
@@ -108,7 +108,7 @@ def process(layer1_path, det_path, out_dir, partitions=("train", "val", "test"),
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dataset", default="data/", help="folder with layer1.json and det_ingrs.json")
+    p.add_argument("--dataset", default="data/recipe1M", help="folder with layer1.json and det_ingrs.json")
     p.add_argument("--out-dir", default="data/skipinstructions")
     p.add_argument("--partitions", nargs="+", default=["train", "val", "test"])
     p.add_argument("--lower", action="store_true", help="lowercase after ingredient joining (off by default, as in the original)")

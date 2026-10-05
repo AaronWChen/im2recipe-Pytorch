@@ -1,4 +1,4 @@
-# skipinstr
+# skipinstructions
 
 Skip-thought encoder for recipe instructions: a modernized PyTorch port of
 `sanyam5/skip-thoughts` (UniSkip) plus the data tooling the im2recipe trijoint
@@ -10,19 +10,19 @@ model needs. It replaces the Lua/Torch `th-skip` pipeline that produced
 ```bash
 # 1. Tokenize: one instruction per line (+ a recipe index). Prints an instruction
 #    length summary so you can sanity-check --maxlen.
-python -m skipinstr.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstr --w2v-corpus
+python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstructions --w2v-corpus
 
 # 2. Train on the train partition (vocabulary is built from it on first run).
-python -m skipinstr.train \
-    --train-file data/skipinstr/instructions_train.txt --train-index data/skipinstr/instructions_train.index.tsv \
-    --val-file   data/skipinstr/instructions_val.txt   --val-index   data/skipinstr/instructions_val.index.tsv \
+python -m skipinstructions.train \
+    --train-file data/skipinstructions/instructions_train.txt --train-index data/skipinstructions/instructions_train.index.tsv \
+    --val-file   data/skipinstructions/instructions_val.txt   --val-index   data/skipinstructions/instructions_val.index.tsv \
     --out-dir runs/skip1
 
 # 3. Encode every partition.
 for p in train val test; do
-  python -m skipinstr.encode --checkpoint runs/skip1/skipinstr-best.pt \
-      --sentences data/skipinstr/instructions_$p.txt --index data/skipinstr/instructions_$p.index.tsv \
-      --out-prefix data/skipinstr/$p
+  python -m skipinstructions.encode --checkpoint runs/skip1/skipinstructions-best.pt \
+      --sentences data/skipinstructions/instructions_$p.txt --index data/skipinstructions/instructions_$p.index.tsv \
+      --out-prefix data/skipinstructions/$p
 done
 ```
 
@@ -54,5 +54,5 @@ step exactly as in the original README.
 ## Tests
 
 ```bash
-python -m pytest skipinstr/tests -q
+python -m pytest skipinstructions/tests -q
 ```
