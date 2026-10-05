@@ -229,20 +229,12 @@ Steps 6 and 7 must be run with the same values, because the checkpoint's shapes 
 ## Out-of-the-box training
 
 To train the model, you will need to create following files:
-* `data/train_lmdb`: LMDB (training) containing skip-instructions vectors, ingredient ids and categories.
-* `data/train_keys`: pickle (training) file containing skip-instructions vectors, ingredient ids and categories.
-* `data/val_lmdb`: LMDB (validation) containing skip-instructions vectors, ingredient ids and categories.
-* `data/val_keys`: pickle (validation) file containing skip-instructions vectors, ingredient ids and categories.
-* `data/test_lmdb`: LMDB (testing) containing skip-instructions vectors, ingredient ids and categories.
-* `data/test_keys`: pickle (testing) file containing skip-instructions vectors, ingredient ids and categories.
+* `data/{train,val,test}_store/`: one folder of flat `.npy` arrays per partition (skip-instructions vectors with recipe offsets, ingredient ids, categories, image names), written by `scripts/build_dataset.py` (see below).
 * `data/text/vocab.txt`: file containing all the vocabulary found within the recipes.
 
 And download the following ones: 
 * `data/text/vocab.bin`: ingredient Word2Vec vocabulary. Used during training to select word2vec vectors given ingredient ids.
 * `data/food101_classes_renamed.txt`: Food101 classes used to create the bigrams.
-* `data/encs_train_1024.t7`: Skip-instructions train partition.
-* `data/encs_val_1024.t7`: Skip-instructions val partition.
-* `data/encs_test_1024.t7`: Skip-instructions test partition.
 * `data/recipe1M/layer2+.json`: Recipe1M+ layer2.
 * `data/images/Recipe1M+_{a..f}.tar`: 6 Tar files containing part of the images available in Recipe1M+ (~210Gb each).
 * `data/images/Recipe1M+_{0..9}.tar`: 10 Tar files containing part of the images available in Recipe1M+ (~210Gb each).
@@ -255,6 +247,33 @@ It is worth mentioning that the code is expecting images to be located in a four
 
 We also provide the steps to format and prepare Recipe1M/Recipe1M+ data for training the trijoint model. We hope these instructions will allow others to train similar models with other data sources as well.
 
+### Word2Vec
+
+Training word2vec with recipe data:
+
+- Run ```python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstr --w2v-corpus``` from the repository root. This writes `tokenized_instructions_<partition>.txt` (one recipe per line, used here for word2vec) and the one-instruction-per-line files used for skip-instructions below.
+<!-- - Run the same ```python tokenize_instructions.py``` to generate the same file with data for all partitions (needed for skip-thoughts later). -->
+
+See `skipinstructions/README.md`. From the repository root:
+
+```
+python -m skipinstructions.train --train-file data/skipinstructions/instructions_train.txt --train-index data/skipinstructions/instructions_train.index.tsv \
+    --val-file data/skipinstructions/instructions_val.txt --val-index data/skipinstructions/instructions_val.index.tsv --out-dir runs/skip1
+for p in train val test; do
+  python -m skipinstructions.encode --checkpoint runs/skip1/skipinstr-best.pt \
+      --sentences data/skipinstructions/instructions_$p.txt --index data/skipinstructions/instructions_$p.index.tsv \
+      --out-prefix data/skipinstructions/$p
+done
+```
+
+This writes `data/skipinstructions/<partition>.encs.npy` (+ `.index.json`). Add `--dtype float16` to halve their size.
+
+- Original arguments for the original Word2Vec model were:
+
+```
+./word2vec -hs 1 -negative 0 -window 10 -cbow 0 -iter 10 -size 300 -binary 1 -min-count 10 -threads 20 -train tokenized_instructions_train.txt -output vocab.bin
+```
+
 ### Choosing semantic categories
 
 We provide the script we used to extract semantic categories from bigrams in recipe titles:
@@ -264,38 +283,30 @@ We provide the script we used to extract semantic categories from bigrams in rec
 
 These steps will create a file called ```classes1M.pkl``` in ```./data/``` that will be used later to create the LMDB file including categories.
 
-### Word2Vec
-
-Training word2vec with recipe data:
-
-- Run ```python tokenize_instructions.py train``` to create a single file with all training recipe text.
-- Run the same ```python tokenize_instructions.py``` to generate the same file with data for all partitions (needed for skip-thoughts later).
-- Download and compile [word2vec](https://storage.googleapis.com/google-code-archive-source/v2/code.google.com/word2vec/source-archive.zip)
-- Train with:
-
-```
-./word2vec -hs 1 -negative 0 -window 10 -cbow 0 -iter 10 -size 300 -binary 1 -min-count 10 -threads 20 -train tokenized_instructions_train.txt -output vocab.bin
-```
-
-- Run ```python get_vocab.py vocab.bin``` to extract dictionary entries from the w2v binary file. This script will save ```vocab.txt```, which will be used to create the dataset later.
-- Move ```vocab.bin``` and ```vocab.txt``` to ```./data/text/```.
-
-### Skip-instructions (Torch)
-
-~~In this repository the Skip-instructions is not implemented in Pytorch, instead we provide the necessary files to train, validate and test tri_joint model.~~
+### Skip-instructions (PyTorch)
 
 Skipthoughts-pytorch implementation has been added as a subtree and will be used to retrain the skipthoughts model
 
-### Creating LMDB file
+- Prepare the dataset by running from the `scripts` directory:
+`python skip-instructions_mk_dataset.py --dataset /path/to/recipe1M/ --vocab /path/to/w2v/word2vec_vocab.txt --toks /path/to/tokenized_instructions.txt`
 
-Navigate back to ```./```. Run the following from ```./scripts```:
+The `skip-instructions_mk_dataset.py` file has default values already.
+
+`tokenized_instructions.txt` contains text instructions for the entire dataset. Different instructions for the same recipe are separated by '\t' and different recipe instructions are delimited with '\n'. 
+
+`word2vec_vocab.txt` is a file containing the entries of the previously trained word2vec model.
+
+### Creating the dataset
+
+Run the following from ```./scripts``` (it replaces `mk_dataset.py`):
 
 ```
-python mk_dataset.py 
---vocab /path/to/w2v/vocab.txt 
---sthdir /path/to/skip-instr_files/
+python build_dataset.py \
+--vocab /path/to/w2v/vocab.txt \
+--skip-dir ../data/skipinstr \
+--out-dir ../data
 ```
-Notice, that layer2 within ```./data/recipe1M/layer2.json``` will need to be replaced by layer2+.json in order to create our extended Recipe1M+ dataset.
+This writes `data/{train,val,test}_store/`. Recipes without images, with too many ingredients/instructions, or listed in `remove1M.txt` are skipped. Notice, that layer2 within ```./data/recipe1M/layer2.json``` will need to be replaced by layer2+.json in order to create our extended Recipe1M+ dataset.
 
 ## Training
 
