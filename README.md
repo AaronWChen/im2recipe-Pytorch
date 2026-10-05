@@ -34,14 +34,15 @@ If you find this code useful, please consider citing:
 ## Contents
 1. [Installation](#installation)
 2. [Recipe1M Dataset](#recipe1m-and-recipe1m-datasets)
-3. [Vision models](#vision-models)
-4. [Out-of-the-box training](#out-of-the-box-training)
-5. [Prepare training data](#prepare-training-data)
-6. [Training](#training)
-7. [Testing](#testing)
-8. [Pretrained model](#pretrained-model)
-9. [Recipes with nutritional info](#recipes-with-nutritional-info)
-10. [Contact](#contact)
+4. [Vision models](#vision-models)
+5. [Build from Scratch](#build-from-scratch)
+3. [Out-of-the-box training](#out-of-the-box-training)
+6. [Prepare training data](#prepare-training-data)
+7. [Training](#training)
+8. [Testing](#testing)
+9. [Pretrained model](#pretrained-model)
+10. [Recipes with nutritional info](#recipes-with-nutritional-info)
+11. [Contact](#contact)
 
 ## Installation
 
@@ -60,6 +61,170 @@ In order to get access to the dataset, please fill the following form [here](htt
 ## Vision models
 
 This current version of the code uses a pre-trained ResNet-50.
+
+## Build from Scratch
+
+Every command below is run from the repository root unless it says `cd scripts`. The whole sequence,
+with these exact command lines, runs end to end on a tiny synthetic dataset:
+`bash tests/e2e_dry_run.sh` (needs network once for the nltk data used by `bigrams.py`).
+It has not been run on real Recipe1M data.
+
+### The parts, and what each one needs
+
+| Part | What it is | Needs first | Feeds |
+|---|---|---|---|
+| **Tokenized text** | one instruction per line, ingredient names joined with `_` | Recipe1M json | everything below |
+| **Ingredient word2vec** (`vocab.bin`, `vocab.txt`) | embeddings of ingredient words; ingredient ids are `vocab.txt` line + 2 | tokenized text | semantic classes, dataset, `ingRNN` |
+| **Semantic classes** (`classes1M.pkl`) | class label per recipe, from title bigrams + Food-101 | `vocab.txt` | dataset, semantic loss |
+| **Skip-instruction encoder** (`runs/skip1/`) | sentence encoder; its vectors are the input of `stRNN` | tokenized text | dataset |
+| **ResNet-50** | the image branch; ImageNet weights are downloaded by torchvision | nothing | trijoint |
+| **Dataset** (`data/*_store/`) | per recipe: instruction vectors, ingredient ids, class, image names | w2v vocab + classes + skip vectors | trijoint |
+| **Tri-joint model** | `ingRNN` + `stRNN` + recipe embedding, ResNet + image embedding, semantic classifier | dataset, `vocab.bin`, images | test / rank |
+
+The skip-instruction encoder is trained **separately and frozen**: the tri-joint model only reads its output vectors.
+So the tri-joint model has to be trained after, and on, the vectors from *your* encoder.
+
+### Order of operations
+
+```
+          Recipe1M json + images
+                    |
+            [1] tokenize
+             /               \
+  [2] ingredient word2vec     [4] skip-instruction train -> [4b] encode (train, val, test)
+          |                                                  |
+  [3] semantic classes                                       |
+             \                                              /
+              +------------> [5] build dataset <------------+
+                                     |
+                     [6] train tri-joint (ResNet-50 downloads here)
+                                     |
+                           [7] test -> rank
+```
+
+After step 1, the chain 2 -> 3 and the chain 4 -> 4b do not depend on each other and can run in parallel.
+Step 5 waits for both. Steps 5 to 7 are strictly sequential.
+
+#### 0. Set up and get the data
+
+```bash
+pip install -r requirements.txt
+python -c "import nltk; [nltk.download(p) for p in ('punkt', 'punkt_tab', 'stopwords')]"   # for bigrams.py
+python -m pytest tests skipinstructions/tests -q      # checks the install; takes about a minute
+```
+
+Get Recipe1M through the form linked in `README.md` and arrange it like this:
+
+```
+data/recipe1M/layer1.json  layer2.json  det_ingrs.json
+data/images/               (four-level folders: 0/f/a/8/0fa8....jpg)
+data/food101_classes_renamed.txt
+```
+
+#### 1. Tokenize
+
+```bash
+python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstructions --w2v-corpus
+```
+Writes `instructions_<part>.txt` (+ `.index.tsv`) for skip-instructions and `tokenized_instructions_<part>.txt` for word2vec.
+Look at the printed instruction-length summary: instructions longer than `--maxlen` (default 30 steps) are truncated in step 4.
+
+#### 2. Ingredient word2vec
+
+```bash
+cd scripts
+python train_w2v.py          # defaults: corpus ../data/skipinstructions/tokenized_instructions_train.txt, out ../data/text/vocab.bin
+python check_ingredient_vocab.py
+cd ..
+```
+Writes `data/text/vocab.bin` and `data/text/vocab.txt`. The check must print `OK`. It confirms that the id the dataset
+gives an ingredient (`vocab.txt` line + 2) reads that ingredient's own vector in the model. Defaults are the flags the
+README used with the C tool (skip-gram, hierarchical softmax, window 10, 10 epochs, 300 dimensions, min count 10).
+`--size` must equal `--ingrW2VDim` in step 6.
+
+#### 3. Semantic classes (needs `vocab.txt` from step 2)
+
+```bash
+cd scripts
+python bigrams.py --crtbgrs        # bigrams of training recipe titles -> ../data/bigrams1M.pkl
+python bigrams.py --nocrtbgrs      # class labels from those bigrams + Food-101 -> ../data/classes1M.pkl
+cd ..
+```
+The second command prints the number of classes (background included) on its last line.
+If it is not 1048, pass that number as `--numClasses` in step 6. The second command loops over every recipe for each
+candidate bigram in plain Python, so expect it to be slow. I have not timed it on the full dataset.
+
+#### 4. Skip-instruction encoder (independent of steps 2 and 3)
+
+```bash
+python -m skipinstructions.train \
+    --train-file data/skipinstructions/instructions_train.txt --train-index data/skipinstructions/instructions_train.index.tsv \
+    --val-file   data/skipinstructions/instructions_val.txt   --val-index   data/skipinstructions/instructions_val.index.tsv \
+    --out-dir runs/skip1
+
+for p in train val test; do
+  python -m skipinstructions.encode --checkpoint runs/skip1/skipinstructions-best.pt \
+      --sentences data/skipinstructions/instructions_$p.txt --index data/skipinstructions/instructions_$p.index.tsv \
+      --out-prefix data/skipinstructions/$p
+done
+```
+Training prints the validation loss every `--eval-every` iterations and keeps the best checkpoint as `skipinstructions-best.pt`.
+The default `--iters` is 1,000,000; stop earlier once the validation loss stops improving. A resumed run uses
+`--resume runs/skip1/skipinstructions-last.pt`. Keep `--thought-size 1024` equal to `--stDim` in step 6. Add `--dtype float16` to
+`encode` to halve the files.
+
+#### 5. Build the dataset (needs 2, 3 and 4)
+
+```bash
+cd scripts
+python build_dataset.py
+cd ..
+```
+Writes `data/{train,val,test}_store/`. Read the last two lines it prints. `filtered=` is normal (recipes without images, too many
+instructions or ingredients, or in `remove1M.txt`). `no_vectors=` and `count_mismatch=` should be 0; if not, steps 1 and 4
+were run on different data.
+
+#### 6. Train the tri-joint model
+
+```bash
+python train.py --img_path data/images/ --data_path data/ --ingrW2V data/text/vocab.bin --snapshots snapshots/
+```
+The ResNet-50 ImageNet weights download on first start (use `--no_pretrained` only for smoke tests). Defaults assume
+`--stDim 1024 --ingrW2VDim 300 --numClasses 1048`; change them to match steps 2 to 4 if you changed those.
+`--workers` defaults to 30 and `--batch_size` to 160; lower them to fit your machine.
+
+Inside this step the schedule alternates between two phases:
+
+1. **Phase 1, start:** ResNet-50 is frozen (learning rate 0); the recipe branch, image embedding and classifier train.
+2. Every `--valfreq` epochs (default 10, skipping epoch 0) validation runs and reports median rank (MedR, lower is better) and recall.
+3. If validation does not improve for `--patience` validations (default 1), the two groups **swap**: ResNet-50 trains, everything
+   else is frozen. It swaps back the next time validation stalls, and so on.
+4. A checkpoint `snapshots/model_eNNN_v-<val>.pth.tar` is written only when validation improves. Stop when it stops improving
+   (the default is 720 epochs). Continue with `--resume <checkpoint>`.
+
+The README says the original authors' default configuration converged in under 3 days on their hardware. I have no timing for this port.
+
+#### 7. Evaluate
+
+```bash
+python test.py --model_path snapshots/model_eNNN_v-X.XXX.pth.tar    # writes results/*.pkl
+python scripts/rank.py --path_results results/                       # MedR and recall
+```
+Use the checkpoint with the best validation score. `rank.py` ranks random subsets of `--medr` samples (default 1000), so the
+test partition must have at least that many recipes.
+
+### What must agree across steps
+
+| Setting | Where it is set | Where it must match |
+|---|---|---|
+| `--thought-size` (step 4) | skipinstructions training | `--stDim` in steps 6 and 7 |
+| `--size` (step 2) | word2vec training | `--ingrW2VDim` in steps 6 and 7 |
+| class count (step 3) | printed by `bigrams.py` | `--numClasses` in steps 6 and 7 |
+| `--ingr_extra_rows` (default 2) | steps 6 and 7 | 2 if `vocab.txt` was written by `get_vocab.py`/`train_w2v.py`; 0 only for a `vocab.bin` that already starts with two reserved rows |
+| `--maxlen` (default 20 in step 5) | `build_dataset.py` | the loader's 20-instruction limit in `data_loader.py` |
+
+Steps 6 and 7 must be run with the same values, because the checkpoint's shapes depend on them.
+
 
 ## Out-of-the-box training
 

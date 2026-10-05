@@ -3,10 +3,11 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
+# import torchvision.transforms as transforms
+# import torchvision.datasets as datasets
 import torchvision.models as models
-import torchwordemb
+from word2vec_io import load_word2vec_bin
+
 from args import get_parser
 
 # =============================================================================
@@ -27,7 +28,7 @@ def norm(input, p=2, dim=1, eps=1e-12):
 
 # Skip-thoughts LSTM
 class stRNN(nn.Module):
-    def __init__(self):
+    def __init__(self, opts):
         super(stRNN, self).__init__()
         self.lstm = nn.LSTM(input_size=opts.stDim, hidden_size=opts.srnnDim, bidirectional=False, batch_first=True)
                 
@@ -40,7 +41,7 @@ class stRNN(nn.Module):
         sorted_inputs = x.gather(0, index_sorted_idx.long())
         # pack sequence
         packed_seq = torch.nn.utils.rnn.pack_padded_sequence(
-                sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
+                sorted_inputs, sorted_len.cpu(), batch_first=True)
         # pass it to the lstm
         out, hidden = self.lstm(packed_seq)
 
@@ -58,10 +59,16 @@ class stRNN(nn.Module):
         return output 
 
 class ingRNN(nn.Module):
-    def __init__(self):
+    def __init__(self, opts):
         super(ingRNN, self).__init__()
         self.irnn = nn.LSTM(input_size=opts.ingrW2VDim, hidden_size=opts.irnnDim, bidirectional=True, batch_first=True)
-        _, vec = torchwordemb.load_word2vec_bin(opts.ingrW2V)
+        _, vec = load_word2vec_bin(opts.ingrW2V)
+        if vec.shape[1] != opts.ingrW2VDim:
+            raise ValueError('%s has %d-dimensional vectors but --ingrW2VDim is %d'
+                             % (opts.ingrW2V, vec.shape[1], opts.ingrW2VDim))
+        vec = torch.from_numpy(vec)
+        if opts.ingr_extra_rows:  # zero rows for padding (id 0) and the end-of-ingredients token (id 1)
+            vec = torch.cat([torch.zeros(opts.ingr_extra_rows, vec.size(1)), vec])
         self.embs = nn.Embedding(vec.size(0), opts.ingrW2VDim, padding_idx=0) # not sure about the padding idx 
         self.embs.weight.data.copy_(vec)
 
@@ -77,7 +84,7 @@ class ingRNN(nn.Module):
         sorted_inputs = x.gather(0, index_sorted_idx.long())
         # pack sequence
         packed_seq = torch.nn.utils.rnn.pack_padded_sequence(
-                sorted_inputs, sorted_len.cpu().data.numpy(), batch_first=True)
+                sorted_inputs, sorted_len.cpu(), batch_first=True)
         # pass it to the rnn
         out, hidden = self.irnn(packed_seq)
 
@@ -95,11 +102,15 @@ class ingRNN(nn.Module):
 
 # Im2recipe model
 class im2recipe(nn.Module):
-    def __init__(self):
+    def __init__(self, opts, pretrained=True):
+        """opts: the parsed arguments (see args.py). pretrained: start the vision branch from
+        ImageNet weights (needs a download); not needed when a checkpoint is loaded afterwards."""
         super(im2recipe, self).__init__()
+        self.semantic_reg = opts.semantic_reg
         if opts.preModel=='resNet50':
-        
-            resnet = models.resnet50(pretrained=True)
+
+            weights = models.ResNet50_Weights.IMAGENET1K_V1 if pretrained else None
+            resnet = models.resnet50(weights=weights)
             modules = list(resnet.children())[:-1]  # we do not use the last fc layer.
             self.visionMLP = nn.Sequential(*modules)
 
@@ -116,8 +127,8 @@ class im2recipe(nn.Module):
         else:
             raise Exception('Only resNet50 model is implemented.') 
 
-        self.stRNN_     = stRNN()
-        self.ingRNN_    = ingRNN()
+        self.stRNN_     = stRNN(opts)
+        self.ingRNN_    = ingRNN(opts)
         self.table      = TableModule()
  
         if opts.semantic_reg:
@@ -135,7 +146,7 @@ class im2recipe(nn.Module):
         visual_emb = self.visual_embedding(visual_emb)
         visual_emb = norm(visual_emb)
         
-        if opts.semantic_reg:            
+        if self.semantic_reg:
             visual_sem = self.semantic_branch(visual_emb)
             recipe_sem = self.semantic_branch(recipe_emb)
             # final output
@@ -144,5 +155,3 @@ class im2recipe(nn.Module):
             # final output 
             output = [visual_emb, recipe_emb] 
         return output 
-
-

@@ -2,36 +2,30 @@ import time
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
-import torch.backends.cudnn as cudnn
 from data_loader import ImagerLoader # our data_loader
 import numpy as np
 from trijoint import im2recipe
+from checkpoint_io import load_checkpoint
 import pickle
 from args import get_parser
 
-# =============================================================================
-parser = get_parser()
-opts = parser.parse_args()
-# =============================================================================
-
-torch.manual_seed(opts.seed)
-
-np.random.seed(opts.seed)
-
-if not(torch.cuda.device_count()):
-    device = torch.device(*('cpu',0))
-else:
+def get_device(opts):
+    if not torch.cuda.device_count():
+        return torch.device('cpu', 0)
     torch.cuda.manual_seed(opts.seed)
-    device = torch.device(*('cuda',0))
+    return torch.device('cuda', 0)
 
-def main():
-   
-    model = im2recipe()
+def main(opts=None):
+    if opts is None:
+        opts = get_parser().parse_args()
+    torch.manual_seed(opts.seed)
+    np.random.seed(opts.seed)
+    device = get_device(opts)
+
+    # the checkpoint supplies every weight, so there is no point downloading ImageNet ones
+    model = im2recipe(opts, pretrained=False)
     model.visionMLP = torch.nn.DataParallel(model.visionMLP)
     model.to(device)
 
@@ -49,10 +43,7 @@ def main():
         criterion = cosine_crit
 
     print("=> loading checkpoint '{}'".format(opts.model_path))
-    if device.type=='cpu':
-        checkpoint = torch.load(opts.model_path, encoding='latin1', map_location='cpu')
-    else:
-        checkpoint = torch.load(opts.model_path, encoding='latin1')
+    checkpoint = load_checkpoint(opts.model_path, device, opts.trust_checkpoint)
     opts.start_epoch = checkpoint['epoch']
     model.load_state_dict(checkpoint['state_dict'])
     print("=> loaded checkpoint '{}' (epoch {})"
@@ -66,7 +57,7 @@ def main():
     test_loader = torch.utils.data.DataLoader(
         ImagerLoader(opts.img_path,
  	    transforms.Compose([
-            transforms.Scale(256), # rescale the image keeping the original aspect ratio
+            transforms.Resize(256), # rescale the image keeping the original aspect ratio
             transforms.CenterCrop(224), # we get only the center of that rescaled
             transforms.ToTensor(),
             normalize,
@@ -76,9 +67,9 @@ def main():
     print('Test loader prepared.')
 
     # run test
-    test(test_loader, model, criterion)
+    test(test_loader, model, criterion, opts, device)
 
-def test(test_loader, model, criterion):
+def test(test_loader, model, criterion, opts, device):
     batch_time = AverageMeter()
     cos_losses = AverageMeter()
     if opts.semantic_reg:
@@ -111,13 +102,13 @@ def test(test_loader, model, criterion):
                     opts.cls_weight * rec_loss 
 
             # measure performance and record losses
-            cos_losses.update(cos_loss.data, input[0].size(0))
-            img_losses.update(img_loss.data, input[0].size(0))
-            rec_losses.update(rec_loss.data, input[0].size(0))
+            cos_losses.update(cos_loss.item(), input[0].size(0))
+            img_losses.update(img_loss.item(), input[0].size(0))
+            rec_losses.update(rec_loss.item(), input[0].size(0))
         else:
             loss = criterion(output[0], output[1], target_var[0])
             # measure performance and record loss
-            cos_losses.update(loss.data[0], input[0].size(0))
+            cos_losses.update(loss.item(), input[0].size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)

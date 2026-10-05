@@ -1,49 +1,45 @@
-from scipy.misc import imread, imresize
 import numpy as np
+from PIL import Image
+
+
 def detect_ingrs(recipe, vocab):
     try:
         ingr_names = [ingr['text'] for ingr in recipe['ingredients'] if ingr['text']]
-    except:
+    except (KeyError, TypeError):
         ingr_names = []
         print("Could not load ingredients! Moving on...")
 
     detected = set()
     for name in ingr_names:
-        name = name.replace(' ','_')
+        name = name.replace(' ', '_')
         name_ind = vocab.get(name)
         if name_ind:
             detected.add(name_ind)
-        '''
-        name_words = name.lower().split(' ')
-        for i in xrange(len(name_words)):
-            name_ind = vocab.get('_'.join(name_words[i:]))
-            if name_ind:
-                detected.add(name_ind)
-                break
-        '''
 
     return list(detected) + [vocab['</i>']]
 
-def process_image(impath,imsize):
+
+def _to_rgb_array(img):
+    """PIL image -> uint8 HxWx3 array (grayscale and RGBA are converted)."""
+    return np.asarray(img.convert('RGB'))
+
+
+def process_image(impath, imsize):
+    """Load an image and scale it so that its shorter side is `imsize`."""
     try:
-        img = imread(impath)
-        if img.ndim == 2: #grayscale
-            img = img[:,:,None][:,:,[0,0,0]]
-        H0, W0 = img.shape[0], img.shape[1]
-
-        img = imresize(img, float(imsize) / min(H0, W0))
+        with Image.open(impath) as im:
+            W0, H0 = im.size
+            scale = float(imsize) / min(H0, W0)
+            img = _to_rgb_array(im.convert('RGB').resize((round(W0 * scale), round(H0 * scale)), Image.BILINEAR))
         fail = 0
-    except:
+    except Exception:
         print("Could not load image...Using black one instead.")
-        img = np.zeros((imsize,imsize,3))
-        fail =1
+        img = np.zeros((imsize, imsize, 3))
+        fail = 1
 
-    return img,fail
+    return img, fail
+
 
 def read_image(filename):
-    img = imread(filename)
-    if img.ndim == 2:
-        img = img[:, :, None][:, :, [0, 0, 0]]
-
-    img = imresize(img, (224,224))
-    return img
+    with Image.open(filename) as im:
+        return _to_rgb_array(im.convert('RGB').resize((224, 224), Image.BILINEAR))
