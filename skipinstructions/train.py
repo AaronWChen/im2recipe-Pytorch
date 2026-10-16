@@ -10,6 +10,7 @@ from collections import deque
 
 import numpy as np
 import torch
+from safetensors_io import save_safetensors
 
 from .data import SentenceCorpus
 from .model import UniSkip
@@ -56,8 +57,11 @@ def evaluate(model, corpus, batch_size, n_batches, device):
 
 
 def save_checkpoint(path, model, optimizer, it, config, best):
+    """<name>.pt resumes training (weights + optimizer); <name>.safetensors is the weights-only copy to keep and share."""
     torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
                 "iter": it, "config": config, "best": best}, path)
+    save_safetensors(os.path.splitext(path)[0] + ".safetensors", model.state_dict(),
+                     {"format": "skipinstr-v1", "config": config, "iter": it, "best": best})
 
 
 def run(args):

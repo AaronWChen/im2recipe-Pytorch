@@ -106,9 +106,9 @@ def parse_args(argv=None):
         "--fp16", action="store_true", help="run the model in half precision (GPU only)"
     )
     p.add_argument("--l2-normalize", action="store_true")
-    p.add_argument(
-        "--allow-pickle",
-        action="store_true",
+    p.add_argument("--prefix", default="", help="text put before every instruction (some embedding models expect one)")
+    p.add_argument("--suffix", default="", help="text put after every instruction")
+    p.add_argument("--allow-pickle", action="store_true",
         help="accept models without safetensors weights (trusted only)",
     )
     p.add_argument("--device", default=None)
@@ -139,6 +139,8 @@ def main(argv=None):
         batch_size=a.batch_size,
         layer=a.layer,
         l2_normalize=a.l2_normalize,
+        prefix=a.prefix, 
+        suffix=a.suffix,
     )
     write_encoding_index(a.out_prefix + ".index.json", ids, rlens, dim)
     with open(a.out_prefix + ".encoder.json", "w") as f:
@@ -152,6 +154,8 @@ def main(argv=None):
                 "l2_normalize": a.l2_normalize,
                 "dtype": a.dtype,
                 "fp16": a.fp16,
+                "prefix": a.prefix, 
+                "suffix": a.suffix, 
             },
             f,
             indent=1,

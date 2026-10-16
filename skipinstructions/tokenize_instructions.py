@@ -5,6 +5,9 @@
 For each partition (train / val / test) this writes
     instructions_<part>.txt         one tokenized instruction per line, recipes contiguous
     instructions_<part>.index.tsv   recipe_id <TAB> number of instruction lines
+with --raw, raw_instructions_<part>.txt: the same instructions line for line, but as plain text (only whitespace
+collapsed; no tokenization, no ingredient joining), which is what a pretrained transformer's own tokenizer
+(see textenc/) should be given; the same index file applies;
 and, with --w2v-corpus, tokenized_instructions_<part>.txt in the format the
 original scripts/tokenize_instructions.py produced for word2vec training
 (one recipe per line, instructions separated by a tab).

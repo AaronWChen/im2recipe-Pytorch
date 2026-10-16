@@ -41,13 +41,14 @@ def pad_token_id(tokenizer):
 
 @torch.no_grad()
 def encode_texts(model, tokenizer, texts, device="cpu", pooling="mean", max_length=None, batch_size=64, layer=-1,
-                 l2_normalize=False):
+                 l2_normalize=False, prefix="", suffix=""):
     """Encode a list of strings -> float32 array (len(texts), hidden_size), in the order given.
 
     Texts are tokenized by the model's own tokenizer, truncated to max_length tokens, sorted by length so
     batches carry little padding, and padded on the right with an explicit attention mask (so a text's vector
     does not depend on the other texts in its batch). An empty text becomes a single end-of-text token.
-    max_length defaults to 128, or fewer if the model has fewer positions.
+    max_length defaults to 128, or fewer if the model has fewer positions. prefix / suffix are added to every text first
+    (some embedding models expect one, e.g. "passage: " for e5; check the model card).
     """
     from .pooling import pool
 
@@ -56,6 +57,7 @@ def encode_texts(model, tokenizer, texts, device="cpu", pooling="mean", max_leng
         max_length = min(128, limit or 128)
     if limit is not None and max_length > limit:
         raise ValueError(f"max_length {max_length} exceeds the model's {limit} positions")
+    texts = [prefix + t + suffix for t in texts] if (prefix or suffix) else list(texts)
     ids = tokenizer(list(texts), add_special_tokens=True, truncation=True, max_length=max_length)["input_ids"]
     fallback = pad_token_id(tokenizer)
     ids = [x if len(x) else [fallback] for x in ids]

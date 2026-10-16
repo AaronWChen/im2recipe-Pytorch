@@ -211,6 +211,56 @@ python train.py --data_path data_gpt2/ --stDim 768 --img_path data/images/ --ing
 - RecipeNLG's text includes Recipe1M recipes, and its own split ignores Recipe1M's partitions. A RecipeNLG-tuned model has therefore very likely seen your val and test text (not images).
   Compare it with plain `gpt2` as a control.
 
+#### 4c. Merge RecipeNLG and fine-tune a language model on the combined text (optional)
+
+RecipeNLG already contains Recipe1M's recipes (its `source` column), but without Recipe1M's ids and partitions. The merge restores them
+by joining on the recipe URL, and writes training text that never includes your Recipe1M val and test recipes:
+
+```bash
+# RecipeNLG's full_dataset.csv is about 2.3 GB; this makes a ~5 MB random sample of it, handy for trying things
+python scripts/sample_recipenlg.py data/recipenlg/full_dataset.csv --rows 5000 --out recipenlg_sample.csv
+
+python scripts/merge_recipenlg.py --recipenlg data/recipenlg/full_dataset.csv --layer1 data/recipe1M/layer1.json \
+    --out-dir data/recipenlg_merged
+```
+Outputs in `data/recipenlg_merged/`: `recipe_links.csv` (RecipeNLG row <-> Recipe1M id and partition, the key for joining everything built on Recipe1M),
+`lm_train.txt`, `lm_val.txt` (a 0.5% slice for the validation loss), `lm_holdout.txt` (the Recipe1M val/test recipes, never trained on) and `merge_stats.json`.
+Check the printed numbers: on the published file there should be 2,231,142 rows, and 2,101,075 after RecipeNLG's own quality filter (those two figures come from
+their notebooks; I have not run the script on the real file). Of the rows with `source=Recipes1M`, essentially all should match a Recipe1M url; if they do not, the
+link normalization needs a look. Rows that are exact copies of held-out recipes (same title and directions, different site) are dropped from training as well.
+
+```bash
+python -m textenc.prepare_lm --model gpt2 --train data/recipenlg_merged/lm_train.txt --val data/recipenlg_merged/lm_val.txt \
+    --holdout data/recipenlg_merged/lm_holdout.txt --out-dir data/lm
+python -m textenc.finetune --model gpt2 --data data/lm --out models/gpt2-recipes \
+    --batch-size 8 --grad-accum 8 --epochs 1 --sample-ingredients "chicken, garlic, lemon"
+```
+- The text format is RecipeNLG's: ingredient names first, then ingredient lines, steps, and the title last, with 13 tag tokens that `prepare_lm` adds to the tokenizer.
+  A model trained on it can be prompted with ingredient names to write a recipe (`--sample-ingredients` shows one at the end).
+- `prepare_lm` prints the number of recipes, blocks and tokens. Packing follows RecipeNLG: whole recipes in blocks of 1024 tokens, longer ones skipped.
+- Try `--max-steps 200` first to check speed and memory. If you run out of GPU memory, lower `--batch-size` and raise `--grad-accum`, or add `--grad-checkpointing`.
+- The learning rate and schedule defaults are mine, not RecipeNLG's. Watch `val_ppl` and `holdout_ppl` in `models/gpt2-recipes/log.jsonl`;
+  `holdout_ppl` is the honest number, because those recipes were kept out of training.
+- `--model` can be any causal language model, including RecipeNLG's checkpoint after `textenc.to_safetensors`. Use `--resume` to continue a stopped run.
+- `models/gpt2-recipes/best` and `last` are ordinary Hugging Face folders with `model.safetensors`. Give `best` to `textenc.encode --model` in step 4b
+  to get instruction vectors from your fine-tuned model.
+
+#### 4d. Using a more modern model than GPT-2
+
+Nothing in `textenc` is specific to GPT-2. `prepare_lm`, `finetune` and `encode` take any Hugging Face model through `--model`; the tests run the whole path with a
+small random Llama-style model (the architecture of Llama, Qwen and SmolLM: rotary positions, grouped-query attention, tied embeddings, a tokenizer that adds a
+start token and has no pad token). They have not been run on real downloaded checkpoints.
+
+- **Generator you fine-tune** (ingredients in, recipe out): any causal language model. Models such as Qwen3 (0.6B to 8B), SmolLM3 (3B), Gemma 3, Llama 3.2 and Phi-4 mini are options;
+  check each one's license. Run `prepare_lm --model <that model>` so the tokenizer matches; the 13 recipe tags are added as new tokens and the embedding matrix grows to fit them.
+- **Memory:** `finetune.py` trains all weights with AdamW and fp32 master weights, which needs about 16 bytes per parameter before activations:
+  roughly 10 GB for a 0.6B model, 27 GB for 1.7B. A 24 GB card therefore handles up to about 0.6B-parameter models; larger ones need LoRA or an 8-bit optimizer, which are not implemented yet.
+- **Instruction vectors for the tri-joint model:** a dedicated embedding model (for example Qwen3-Embedding, EmbeddingGemma or bge-m3) is usually a better choice than a generator's hidden states.
+  Use the pooling its model card gives (`--pooling last` for Qwen3-Embedding, `mean` or `first` for BERT-style models), `--prefix`/`--suffix` if it expects one,
+  and `--stDim` equal to its output size (the encode command prints it).
+  This reads the model with plain `transformers` plus pooling. Models packaged with sentence-transformers can add a projection or normalization layer on top, so their vectors may differ
+  from the official ones; `--l2-normalize` covers normalization only. Models that need `trust_remote_code` are refused.
+
 #### 5. Build the dataset (needs 2, 3 and 4)
 
 ```bash
@@ -222,6 +272,24 @@ cd ..
 Writes `data/{train,val,test}_store/`. Read the last two lines it prints. `filtered=` is normal (recipes without images, too many
 instructions or ingredients, or in `remove1M.txt`). `no_vectors=` and `count_mismatch=` should be 0; if not, steps 1 and 4
 were run on different data.
+
+#### 5b. Shrink the images (optional; saves most of the disk space)
+
+Training only reads the first five images of each training recipe and the first image of each val/test recipe, resized to a shorter side
+of 256 (then cropped to 224). `scripts/resize_images.py` keeps exactly those images, with the shorter side at 256 (never enlarged), as JPEG,
+in the same four-level folder layout, so the result is a drop-in `--img_path`. It needs the stores from step 5.
+
+```bash
+# from the tar files, without extracting them (reads only the wanted files; one process per tar file)
+python scripts/resize_images.py tars --tars /downloads/Recipe1M+_*.tar --data data --out data/images256
+
+# or from images you have already extracted
+python scripts/resize_images.py extracted --src /path/to/recipe1M+_images --data data --out data/images256
+```
+- It can be stopped and restarted: existing outputs are skipped (`--overwrite` redoes them). `<out>/missing.txt` and `failed.txt` list wanted images that were not found or could not be read; the loader substitutes a white image for those, so check the counts it prints.
+- `extracted ... --in-place` replaces the originals of the wanted images instead of writing a new tree, to free disk space. Try it on a copy first, since the originals cannot be recovered. After checking the result you can delete the rest of the extracted tree.
+- `--all-images` also keeps the non-first images of val/test recipes; `--size` and `--quality` change the target.
+- Then train with `--img_path data/images256/`. Resizing in advance also removes most of the JPEG decoding cost, which makes training less dependent on the CPU count.
 
 #### 6. Train the tri-joint model
 
@@ -258,7 +326,7 @@ test partition must have at least that many recipes.
 
 | Setting | Where it is set | Where it must match |
 | --- | --- | --- |
-| `--thought-size` (step 4) | skipinstructions training | `--stDim` in steps 6 and 7 |
+| `--thought-size` (step 4) or the encoder's hidden size (step 4b) | skipinstr training / `textenc.encode` output | `--stDim` in steps 6 and 7 |
 | `--size` (step 2) | word2vec training | `--ingrW2VDim` in steps 6 and 7 |
 | class count (step 3) | printed by `bigrams.py` | `--numClasses` in steps 6 and 7 |
 | `--ingr_extra_rows` (default 2) | steps 6 and 7 | 2 if `vocab.txt` was written by `get_vocab.py`/`train_w2v.py`; 0 only for a `vocab.bin` that already starts with two reserved rows |
@@ -278,6 +346,20 @@ Steps 6 and 7 must be run with the same values, because the checkpoint's shapes 
 `skipinstructions.encode --checkpoint` and `train.py --resume`. Resuming from a `.safetensors` file restarts the optimizer (Adam's running averages are not stored)
 but restores the epoch, best validation value and which phase of the schedule training was in; resume from the `.pth.tar` to continue exactly.
 `train.py --checkpoint_format safetensors` writes only the safetensors file. Convert a `.pt` skipinstr checkpoint from before this existed with `python -m skipinstructions.export <file>.pt`.
+
+## Using this data with MeaLeon
+
+These are design notes: I have not seen MeaLeon's code, only its architecture (Flask/FastAPI services, PostgreSQL, Vespa, MLflow).
+
+- **Join key.** `recipe_links.csv` maps the normalized recipe URL to the Recipe1M id, partition and RecipeNLG row. If MeaLeon's recipes keep a source URL,
+  normalize it with `merge_recipenlg.norm_link` and join on it. Without URLs you would have to match on title and ingredients.
+- **What each part could give MeaLeon.** RecipeNLG's `NER` ingredient names for the sparse `ingredients_bow` side of hybrid search; dense vectors from the
+  tri-joint model (image and recipe share one space, so a photo can query recipes) or from the `textenc` encoder for the vector side; and the fine-tuned model
+  for "write a recipe from what I have".
+- **Serving.** `textenc.models.load_encoder` / `encode_texts` take a list of strings and return a batch of vectors, so they can sit behind the embedding service,
+  or be wrapped as an MLflow pyfunc with the safetensors folder as its artifact, as with the TF-IDF model.
+- **Licensing.** RecipeNLG's terms allow non-commercial research and educational use. Recipe1M has its own terms. Keep data and models derived from them
+  out of any public deployment until you have checked both.
 
 ## Out-of-the-box training
 

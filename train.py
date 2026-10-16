@@ -13,6 +13,8 @@ from data_loader import ImagerLoader
 from args import get_parser
 from trijoint import im2recipe
 from checkpoint_io import load_checkpoint
+from safetensors_io import save_safetensors
+
 
 def get_device(opts):
     if not torch.cuda.device_count():
@@ -59,7 +61,18 @@ def main(opts=None):
             opts.start_epoch = checkpoint['epoch']
             best_val = checkpoint['best_val']
             model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
+            if 'optimizer' in checkpoint:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+            else:
+                # a .safetensors checkpoint has no optimizer state: Adam restarts, and the learning rates
+                # of the two parameter groups are set from the phase the checkpoint was in
+                print("=> no optimizer state in this checkpoint; the optimizer starts fresh")
+                opts.freeVision = bool(checkpoint.get('freeVision', opts.freeVision))
+                opts.freeRecipe = not opts.freeVision
+                opts.patience = checkpoint.get('patience', opts.patience)
+                optimizer.param_groups[0]['lr'] = opts.lr * opts.freeRecipe
+                optimizer.param_groups[1]['lr'] = opts.lr * opts.freeVision
+            
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(opts.resume, checkpoint['epoch']))
         else:
@@ -336,11 +349,17 @@ def rank(opts, img_embeds, rec_embeds, rec_ids):
 
 
 
-def save_checkpoint(state, is_best, opts, filename='checkpoint.pth.tar'):
-
-    filename = opts.snapshots + 'model_e%03d_v-%.3f.pth.tar' % (state['epoch'],state['best_val']) 
-    if is_best:
-        torch.save(state, filename)
+def save_checkpoint(state, is_best, opts):
+    if not is_best:
+        return
+    os.makedirs(opts.snapshots, exist_ok=True)
+    stem = os.path.join(opts.snapshots, 'model_e%03d_v-%.3f' % (state['epoch'], state['best_val']))
+    if opts.checkpoint_format in ('torch', 'both'):
+        torch.save(state, stem + '.pth.tar')
+    if opts.checkpoint_format in ('safetensors', 'both'):
+        meta = {k: v for k, v in state.items() if k not in ('state_dict', 'optimizer')}
+        meta.update({'format': 'im2recipe-trijoint-v1', 'patience': opts.patience, 'opts': vars(opts)})
+        save_safetensors(stem + '.safetensors', state['state_dict'], meta)
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""

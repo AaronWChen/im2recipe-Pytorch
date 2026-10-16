@@ -8,11 +8,11 @@ import torch.utils.data
 import torchvision.models as models
 from word2vec_io import load_word2vec_bin
 
-from args import get_parser
+# from args import get_parser
 
-# =============================================================================
-parser = get_parser()
-opts = parser.parse_args()
+# # =============================================================================
+# parser = get_parser()
+# opts = parser.parse_args()
 # # =============================================================================
 
 class TableModule(nn.Module):

@@ -20,7 +20,7 @@ def pipeline(tmp_path_factory):
     root = tmp_path_factory.mktemp("recipe1M")
     make_dataset(str(root))
     skip_text = root / "text"
-    process(str(root / "layer1.json"), str(root / "det_ingrs.json"), str(skip_text))
+    process(str(root / "layer1.json"), str(root / "det_ingrs.json"), str(skip_text), raw=True)
     run = root / "run"
     train.run(train.parse_args([
         "--train-file", str(skip_text / "instructions_train.txt"), "--train-index", str(skip_text / "instructions_train.index.tsv"),
