@@ -1,7 +1,10 @@
 """Checkpoint loading that does not execute arbitrary pickled code by default."""
+
 import pickle
 
 import torch
+
+from safetensors_io import load_safetensors
 
 
 def load_checkpoint(path, device, trust=False):
@@ -12,12 +15,22 @@ def load_checkpoint(path, device, trust=False):
     the numpy scalars older versions of train.py stored, need trust=True (--trust_checkpoint),
     which unpickles with the old latin1 behaviour. Only use that for files you trust.
     """
-    map_location = 'cpu' if device.type == 'cpu' else None
+    if str(path).endswith(".safetensors"):
+        # weights + scalar metadata (epoch, best_val, ...). No optimizer state: it is not stored in this format.
+        state, meta = load_safetensors(path)
+        meta.pop("opts", None)
+        meta.setdefault("epoch", 0)
+        meta["state_dict"] = state
+        return meta
+    map_location = "cpu" if device.type == "cpu" else None
     if trust:
-        return torch.load(path, map_location=map_location, encoding='latin1', weights_only=False)
+        return torch.load(
+            path, map_location=map_location, encoding="latin1", weights_only=False
+        )
     try:
         return torch.load(path, map_location=map_location, weights_only=True)
     except pickle.UnpicklingError as e:
         raise RuntimeError(
             "%s contains objects other than tensors and plain numbers (older checkpoints store numpy "
-            "scalars). If you trust this file, load it with --trust_checkpoint." % path) from e
+            "scalars). If you trust this file, load it with --trust_checkpoint." % path
+        ) from e

@@ -64,7 +64,7 @@ In order to get access to the dataset, please fill the following form [here](htt
 
 This current version of the code uses a pre-trained ResNet-50.
 
-## Build from Scratch
+## Building Tri-joint Model from Scratch
 
 Every command below is run from the repository root unless it says `cd scripts`. The whole sequence,
 with these exact command lines, runs end to end on a tiny synthetic dataset:
@@ -116,6 +116,8 @@ python -m pytest tests skipinstructions/tests -q      # checks the install; take
 ```
 
 Get Recipe1M through the form linked in `README.md` and arrange it like this:
+
+`food101_classes_renamed.txt` can be found in the original `im2recipe` repo, not on the form listedin `README.md`
 
 ```plaintext
 data/recipe1M/layer1.json  layer2.json  det_ingrs.json
@@ -179,6 +181,36 @@ The default `--iters` is 1,000,000; stop earlier once the validation loss stops 
 `--resume runs/skip1/skipinstructions-last.pt`. Keep `--thought-size 1024` equal to `--stDim` in step 6. Add `--dtype float16` to
 `encode` to halve the files.
 
+#### 4b. Alternative to step 4: encode instructions with a Hugging Face model (GPT-2, RecipeNLG, your own fine-tune)
+
+This replaces the skip-instruction encoder with any transformer, and produces files in the same format, so step 5 does not change.
+It needs the instructions as plain text, because the model has its own tokenizer:
+
+```bash
+# once: also write raw_instructions_<part>.txt (rerunning step 1 rewrites the other files with identical content)
+python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstructions --raw
+
+for p in train val test; do
+  python -m textenc.encode --model gpt2 \
+      --sentences data/skipinstructions/raw_instructions_$p.txt --index data/skipinstructions/instructions_$p.index.tsv \
+      --out-prefix data/gpt2/$p
+done
+cd scripts && python build_dataset.py --skip-dir ../data/gpt2 --out-dir ../data_gpt2 && cd ..
+python train.py --data_path data_gpt2/ --stDim 768 --img_path data/images/ --ingrW2V data/text/vocab.bin --snapshots snapshots_gpt2
+```
+
+- `--model` is a Hugging Face id or a local folder, so a model you fine-tune later and save with `save_pretrained` works the same way.
+- The vector size is the model's hidden size (768 for GPT-2 small). The encode command prints it, and it must be `--stDim` in steps 6 and 7.
+- `--pooling` is `mean` (default), `last` or `first` (the `[CLS]` position of BERT-style models). `--layer` picks an earlier hidden layer. `--l2-normalize` rescales the vectors.
+  GPT-2 states are not bounded like skip-instruction vectors, so if training is unstable, try `--l2-normalize`.
+- Each `<prefix>.encoder.json` records how the vectors were made.
+- Instructions are truncated to `--max-length` tokens (default 128, or the model's limit if lower).
+- Weights must be safetensors. A model that only has a pickled `.bin` is refused with a message; convert it once (this needs `--allow-pickle`, so only for sources you trust):
+  `python -m textenc.to_safetensors mbien/recipenlg --out models/recipenlg --allow-pickle`. The converter keeps the model's original class,
+  so it can still generate text and be fine-tuned, and it checks that every tensor is identical after the round trip.
+- RecipeNLG's text includes Recipe1M recipes, and its own split ignores Recipe1M's partitions. A RecipeNLG-tuned model has therefore very likely seen your val and test text (not images).
+  Compare it with plain `gpt2` as a control.
+
 #### 5. Build the dataset (needs 2, 3 and 4)
 
 ```bash
@@ -233,6 +265,19 @@ test partition must have at least that many recipes.
 | `--maxlen` (default 20 in step 5) | `build_dataset.py` | the loader's 20-instruction limit in `data_loader.py` |
 
 Steps 6 and 7 must be run with the same values, because the checkpoint's shapes depend on them.
+
+### Saved models
+
+| Model | Written by | Weights file (safe to share) | Also written (resume) |
+|---|---|---|---|
+| Skip-instruction encoder | `skipinstr.train` | `runs/skip1/skipinstr-best.safetensors` (config in its metadata) | `skipinstr-best.pt`, `skipinstr-last.pt` |
+| Tri-joint model | `train.py` | `snapshots/model_eNNN_v-X.safetensors` (epoch, best val and training options in its metadata) | `.pth.tar` with the optimizer state |
+| Hugging Face model | `save_pretrained`, `textenc.to_safetensors` | `model.safetensors` + `config.json` + tokenizer files | none needed |
+
+`.safetensors` files hold tensors only, so loading them cannot run code. They are accepted by `test.py --model_path`, `image2embedding.py`,
+`skipinstructions.encode --checkpoint` and `train.py --resume`. Resuming from a `.safetensors` file restarts the optimizer (Adam's running averages are not stored)
+but restores the epoch, best validation value and which phase of the schedule training was in; resume from the `.pth.tar` to continue exactly.
+`train.py --checkpoint_format safetensors` writes only the safetensors file. Convert a `.pt` skipinstr checkpoint from before this existed with `python -m skipinstructions.export <file>.pt`.
 
 ## Out-of-the-box training
 

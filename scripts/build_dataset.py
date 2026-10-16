@@ -2,7 +2,7 @@
 """Build the training data for the PyTorch trijoint model (replaces mk_dataset.py).
 
 Reads the Recipe1M json layers, the ingredient vocabulary, the class dictionary and the
-skip-instruction vectors written by `python -m skipinstr.encode`, and writes one flat-array
+skip-instruction vectors written by `python -m skipinstructions.encode`, and writes one flat-array
 store per partition (see recipe_store.py):
 
     <out-dir>/train_store/   <out-dir>/val_store/   <out-dir>/test_store/
@@ -10,7 +10,7 @@ store per partition (see recipe_store.py):
 Example, run from the scripts/ folder:
 
     python build_dataset.py --dataset ../data/recipe1M --vocab ../data/text/vocab.txt \
-        --skip-dir ../data/skipinstr --out-dir ../data
+        --skip-dir ../data/skipinstructions --out-dir ../data
 
 Recipes are skipped exactly as in mk_dataset.py: too many instructions or ingredients
 (>= --maxlen), no images, or listed in the removal file. Differences from mk_dataset.py:
@@ -48,7 +48,7 @@ def _progress(iterable, **kw):
 
 
 def load_skip(skip_dir, part):
-    """(memmapped vectors, {recipe_id: (start, length)}) written by skipinstr.encode."""
+    """(memmapped vectors, {recipe_id: (start, length)}) written by skipinstructions.encode."""
     with open(os.path.join(skip_dir, part + ".index.json")) as f:
         index = json.load(f)
     encs = np.load(os.path.join(skip_dir, part + ".encs.npy"), mmap_mode="r")
