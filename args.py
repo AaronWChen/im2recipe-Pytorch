@@ -27,6 +27,11 @@ def get_parser():
     # model
     parser.add_argument("--batch_size", default=160, type=int)
     parser.add_argument("--snapshots", default="snapshots/", type=str)
+    # .safetensors holds the weights (+ epoch/best_val metadata) and loads without unpickling; .pth.tar also holds the
+    # optimizer state, which --resume needs to continue exactly where training stopped
+    parser.add_argument(
+        "--checkpoint_format", default="both", choices=["both", "safetensors", "torch"]
+    )
 
     # im2recipe model
     parser.add_argument("--embDim", default=1024, type=int)
@@ -73,7 +78,7 @@ def get_parser():
     parser.add_argument("--path_results", default="results/", type=str)
     parser.add_argument(
         "--model_path", default="snapshots/model_e220_v-4.700.pth.tar", type=str
-    )
+    )  # .pth.tar or .safetensors
     parser.add_argument("--test_image_path", default="chicken.jpg", type=str)
 
     # MedR / Recall@1 / Recall@5 / Recall@10
