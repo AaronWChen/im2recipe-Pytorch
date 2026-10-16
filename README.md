@@ -13,7 +13,7 @@ git clone --recursive https://github.com/torralba-lab/im2recipe-Pytorch.git
 
 If you find this code useful, please consider citing:
 
-```
+```plaintext
 @article{marin2019learning,
   title = {Recipe1M+: A Dataset for Learning Cross-Modal Embeddings for Cooking Recipes and Food Images},
   author = {Marin, Javier and Biswas, Aritro and Ofli, Ferda and Hynes, Nicholas and 
@@ -32,11 +32,12 @@ If you find this code useful, please consider citing:
 ```
 
 ## Contents
+
 1. [Installation](#installation)
 2. [Recipe1M Dataset](#recipe1m-and-recipe1m-datasets)
-4. [Vision models](#vision-models)
-5. [Build from Scratch](#build-from-scratch)
-3. [Out-of-the-box training](#out-of-the-box-training)
+3. [Vision models](#vision-models)
+4. [Build from Scratch](#build-from-scratch)
+5. [Out-of-the-box training](#out-of-the-box-training)
 6. [Prepare training data](#prepare-training-data)
 7. [Training](#training)
 8. [Testing](#testing)
@@ -46,10 +47,11 @@ If you find this code useful, please consider citing:
 
 ## Installation
 
-```
+```bash
 docker build -t im2recipe .
 docker run -it im2recipe
 ```
+
 You may use a volume to give snapshots, data, etc to the docker container.
 
 If you are not using Docker, we do recommend to create a new environment with Python 3.7. Right after it, run ```pip install --upgrade cython``` and then install the dependencies with ```pip install -r requirements.txt```. Notice that this will install the latest PyTorch version available. Once you finish, you will need to install [torchwordemb](https://github.com/iamalbert/pytorch-wordemb). In order to do that (or at least the way we found it worked for us), we downloaded and installed it via ```python setup.py install```. In case you get an error related to  ```return {vocab, dest};```, you just need to change the original code to ```return VocabAndTensor(vocab, dest);```, and run ```python setup.py install``` again.
@@ -86,7 +88,7 @@ So the tri-joint model has to be trained after, and on, the vectors from *your* 
 
 ### Order of operations
 
-```
+```plaintext
           Recipe1M json + images
                     |
             [1] tokenize
@@ -115,7 +117,7 @@ python -m pytest tests skipinstructions/tests -q      # checks the install; take
 
 Get Recipe1M through the form linked in `README.md` and arrange it like this:
 
-```
+```plaintext
 data/recipe1M/layer1.json  layer2.json  det_ingrs.json
 data/images/               (four-level folders: 0/f/a/8/0fa8....jpg)
 data/food101_classes_renamed.txt
@@ -126,6 +128,7 @@ data/food101_classes_renamed.txt
 ```bash
 python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstructions --w2v-corpus
 ```
+
 Writes `instructions_<part>.txt` (+ `.index.tsv`) for skip-instructions and `tokenized_instructions_<part>.txt` for word2vec.
 Look at the printed instruction-length summary: instructions longer than `--maxlen` (default 30 steps) are truncated in step 4.
 
@@ -137,6 +140,7 @@ python train_w2v.py          # defaults: corpus ../data/skipinstructions/tokeniz
 python check_ingredient_vocab.py
 cd ..
 ```
+
 Writes `data/text/vocab.bin` and `data/text/vocab.txt`. The check must print `OK`. It confirms that the id the dataset
 gives an ingredient (`vocab.txt` line + 2) reads that ingredient's own vector in the model. Defaults are the flags the
 README used with the C tool (skip-gram, hierarchical softmax, window 10, 10 epochs, 300 dimensions, min count 10).
@@ -150,6 +154,7 @@ python bigrams.py --crtbgrs        # bigrams of training recipe titles -> ../dat
 python bigrams.py --nocrtbgrs      # class labels from those bigrams + Food-101 -> ../data/classes1M.pkl
 cd ..
 ```
+
 The second command prints the number of classes (background included) on its last line.
 If it is not 1048, pass that number as `--numClasses` in step 6. The second command loops over every recipe for each
 candidate bigram in plain Python, so expect it to be slow. I have not timed it on the full dataset.
@@ -168,6 +173,7 @@ for p in train val test; do
       --out-prefix data/skipinstructions/$p
 done
 ```
+
 Training prints the validation loss every `--eval-every` iterations and keeps the best checkpoint as `skipinstructions-best.pt`.
 The default `--iters` is 1,000,000; stop earlier once the validation loss stops improving. A resumed run uses
 `--resume runs/skip1/skipinstructions-last.pt`. Keep `--thought-size 1024` equal to `--stDim` in step 6. Add `--dtype float16` to
@@ -180,6 +186,7 @@ cd scripts
 python build_dataset.py
 cd ..
 ```
+
 Writes `data/{train,val,test}_store/`. Read the last two lines it prints. `filtered=` is normal (recipes without images, too many
 instructions or ingredients, or in `remove1M.txt`). `no_vectors=` and `count_mismatch=` should be 0; if not, steps 1 and 4
 were run on different data.
@@ -189,6 +196,7 @@ were run on different data.
 ```bash
 python train.py --img_path data/images/ --data_path data/ --ingrW2V data/text/vocab.bin --snapshots snapshots/
 ```
+
 The ResNet-50 ImageNet weights download on first start (use `--no_pretrained` only for smoke tests). Defaults assume
 `--stDim 1024 --ingrW2VDim 300 --numClasses 1048`; change them to match steps 2 to 4 if you changed those.
 `--workers` defaults to 30 and `--batch_size` to 160; lower them to fit your machine.
@@ -210,13 +218,14 @@ The README says the original authors' default configuration converged in under 3
 python test.py --model_path snapshots/model_eNNN_v-X.XXX.pth.tar    # writes results/*.pkl
 python scripts/rank.py --path_results results/                       # MedR and recall
 ```
+
 Use the checkpoint with the best validation score. `rank.py` ranks random subsets of `--medr` samples (default 1000), so the
 test partition must have at least that many recipes.
 
 ### What must agree across steps
 
 | Setting | Where it is set | Where it must match |
-|---|---|---|
+| --- | --- | --- |
 | `--thought-size` (step 4) | skipinstructions training | `--stDim` in steps 6 and 7 |
 | `--size` (step 2) | word2vec training | `--ingrW2VDim` in steps 6 and 7 |
 | class count (step 3) | printed by `bigrams.py` | `--numClasses` in steps 6 and 7 |
@@ -224,7 +233,6 @@ test partition must have at least that many recipes.
 | `--maxlen` (default 20 in step 5) | `build_dataset.py` | the loader's 20-instruction limit in `data_loader.py` |
 
 Steps 6 and 7 must be run with the same values, because the checkpoint's shapes depend on them.
-
 
 ## Out-of-the-box training
 
@@ -251,12 +259,18 @@ We also provide the steps to format and prepare Recipe1M/Recipe1M+ data for trai
 
 Training word2vec with recipe data:
 
-- Run ```python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstr --w2v-corpus``` from the repository root. This writes `tokenized_instructions_<partition>.txt` (one recipe per line, used here for word2vec) and the one-instruction-per-line files used for skip-instructions below.
+* Run
+
+```bash
+python -m skipinstructions.tokenize_instructions --dataset data/recipe1M --out-dir data/skipinstr --w2v-corpus
+```
+
+from the repository root. This writes `tokenized_instructions_<partition>.txt` (one recipe per line, used here for word2vec) and the one-instruction-per-line files used for skip-instructions below.
 <!-- - Run the same ```python tokenize_instructions.py``` to generate the same file with data for all partitions (needed for skip-thoughts later). -->
 
-See `skipinstructions/README.md`. From the repository root:
+See `skipinstructions/README.md`. From the repository root, in bash/terminal:
 
-```
+```bash
 python -m skipinstructions.train --train-file data/skipinstructions/instructions_train.txt --train-index data/skipinstructions/instructions_train.index.tsv \
     --val-file data/skipinstructions/instructions_val.txt --val-index data/skipinstructions/instructions_val.index.tsv --out-dir runs/skip1
 for p in train val test; do
@@ -268,9 +282,9 @@ done
 
 This writes `data/skipinstructions/<partition>.encs.npy` (+ `.index.json`). Add `--dtype float16` to halve their size.
 
-- Original arguments for the original Word2Vec model were:
+* Original arguments for the original Word2Vec model were:
 
-```
+```bash
 ./word2vec -hs 1 -negative 0 -window 10 -cbow 0 -iter 10 -size 300 -binary 1 -min-count 10 -threads 20 -train tokenized_instructions_train.txt -output vocab.bin
 ```
 
@@ -278,8 +292,8 @@ This writes `data/skipinstructions/<partition>.encs.npy` (+ `.index.json`). Add 
 
 We provide the script we used to extract semantic categories from bigrams in recipe titles:
 
-- Run ```python bigrams --crtbgrs```. This will save to disk all bigrams in the corpus of all recipe titles in the training set, sorted by frequency. Note that you will need to create first ```vocab.txt``` running ```python get_vocab.py ../data/vocab.bin``` within ```./scripts/```.
-- Running the same script again with ```--nocrtbgrs``` will create class labels from those bigrams adding food101 categories.
+* Run ```python bigrams --crtbgrs```. This will save to disk all bigrams in the corpus of all recipe titles in the training set, sorted by frequency. Note that you will need to create first ```vocab.txt``` running ```python get_vocab.py ../data/vocab.bin``` within ```./scripts/```.
+* Running the same script again with ```--nocrtbgrs``` will create class labels from those bigrams adding food101 categories.
 
 These steps will create a file called ```classes1M.pkl``` in ```./data/``` that will be used later to create the LMDB file including categories.
 
@@ -287,7 +301,7 @@ These steps will create a file called ```classes1M.pkl``` in ```./data/``` that 
 
 Skipthoughts-pytorch implementation has been added as a subtree and will be used to retrain the skipthoughts model
 
-- Prepare the dataset by running from the `scripts` directory:
+* Prepare the dataset by running from the `scripts` directory:
 `python skip-instructions_mk_dataset.py --dataset /path/to/recipe1M/ --vocab /path/to/w2v/word2vec_vocab.txt --toks /path/to/tokenized_instructions.txt`
 
 The `skip-instructions_mk_dataset.py` file has default values already.
@@ -300,49 +314,60 @@ The `skip-instructions_mk_dataset.py` file has default values already.
 
 Run the following from ```./scripts``` (it replaces `mk_dataset.py`):
 
-```
+```bash
 python build_dataset.py \
---vocab /path/to/w2v/vocab.txt \
---skip-dir ../data/skipinstr \
---out-dir ../data
+  --vocab /path/to/w2v/vocab.txt \
+  --skip-dir ../data/skipinstructions \
+  --out-dir ../data
 ```
+
 This writes `data/{train,val,test}_store/`. Recipes without images, with too many ingredients/instructions, or listed in `remove1M.txt` are skipped. Notice, that layer2 within ```./data/recipe1M/layer2.json``` will need to be replaced by layer2+.json in order to create our extended Recipe1M+ dataset.
 
 ## Training
 
-- Train the model with: 
-```
-python train.py 
---img_path /path/to/images/ 
---data_path /path/to/lmdbs/ 
---ingrW2V /path/to/w2v/vocab.bin
---snapshots snapshots/
---valfreq 10
+* Train the model with:
+
+```bash
+python train.py \
+  --img_path /path/to/images/ \
+  --data_path /path/to/lmdbs/ \
+  --ingrW2V /path/to/w2v/vocab.bin \
+  --snapshots snapshots/ \
+  --valfreq 10
 ```
 
-*Note: Again, this can be run without arguments with default parameters if files are in the default location.*
+* Note: Again, this can be run without arguments with default parameters if files are in the default location.*
 
-- You can set ```-batchSize``` to ~160. This is the default config, which will make the model converge in less than 3 days. Pytorch version requires less memory. You should be able to train the model using two TITAN X 12gb with same batch size. In this version we are using LMDBs to load the instructions and ingredients instead of a single HDF5 file.
+* You can set ```-batchSize``` to ~160. This is the default config, which will make the model converge in less than 3 days. Pytorch version requires less memory. You should be able to train the model using two TITAN X 12gb with same batch size. In this version we are using LMDBs to load the instructions and ingredients instead of a single HDF5 file.
 
 ## Testing
 
-- Extract features from test set ```python test.py --model_path=snapshots/model*.tar```. They will be saved in ```results```.
-- After feature extraction, compute MedR and recall scores with ```python scripts/rank.py --path_results=results```.
+* Extract features from test set
+
+```bash
+python test.py --model_path=snapshots/model*.tar
+```
+
+* They will be saved in `results`.
+* After feature extraction, compute MedR and recall scores with ```python scripts/rank.py --path_results=results```.
 
 ## Pretrained model
 
 Our best model trained with Recipe1M+ (journal extension) can be downloaded [here](http://data.csail.mit.edu/im2recipe/model_e500_v-8.950.pth.tar).
 
 You can test it with:
-```
+
+```bash
 python test.py --model_path=snapshots/model_e500_v-8.950.pth.tar
 ```
+
 Our best model trained with Recipe1M (CVPR paper) can be downloaded [here](http://data.csail.mit.edu/im2recipe/model_e220_v-4.700.pth.tar).
 
 ## Recipes with nutritional info
 
 We also provide a subset of recipes with nutritional information. Below you can see an example:
-```
+
+```plaintext
 {'fsa_lights_per100g': {'fat': 'green',
   'salt': 'green',
   'saturates': 'green',
@@ -383,6 +408,7 @@ We also provide a subset of recipes with nutritional information. Below you can 
  'url': 'http://tastykitchen.com/recipes/breakfastbrunch/yogurt-parfaits/',
  'weight_per_ingr': [226.796, 152.0, 30.5]}
 ```
+
 Note that these recipes include the matched ingredients from USDA instead of the original ones. There are 35,867 recipes for training, 7,687 for validation and 7,681 for testing. In order to obtain the grams of salt, we multiplied the sodium by 2.5 and divided it by 1000. Total weight per ingredient, fat, proteins/pro, salt, saturates/sat and sugars/sug are expressed in grams. Sodium/sod is expressed in mg and energy/nrg in kcal. FSA traffic lights are also included per 100g.
 
 ## Contact
