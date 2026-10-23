@@ -3,12 +3,14 @@ import os
 
 import numpy as np
 import pytest
+pytest.importorskip("transformers", reason="pip install -r requirements.txt")
+pytest.importorskip("tokenizers", reason="pip install -r requirements.txt")
 import torch
 
 import build_dataset
 from hf_tiny import make_bert, make_gpt2, make_pickle_only
 from recipe_store import RecipeStore
-from skipinstr.data import read_index, write_index
+from skipinstructions.data import read_index, write_index
 from synthetic import STEPS
 from textenc import encode as enc_cli
 from textenc import to_safetensors

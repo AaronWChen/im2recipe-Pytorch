@@ -4,6 +4,8 @@ import os
 
 import numpy as np
 import pytest
+pytest.importorskip("transformers", reason="pip install -r requirements.txt")
+pytest.importorskip("tokenizers", reason="pip install -r requirements.txt")
 import torch
 
 from hf_tiny import make_gpt2, make_pickle_only

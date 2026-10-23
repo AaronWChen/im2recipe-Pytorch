@@ -11,10 +11,15 @@ From the tar files, without extracting them (only the wanted files are read; one
 
     python scripts/resize_images.py tars --tars /downloads/Recipe1M+_*.tar --data data --out data/images256
 
-From an extracted folder tree (<src>/0/f/a/8/0fa8309c13.jpg):
+From extracted folders (<src>/0/f/a/8/0fa8309c13.jpg). --src takes one or several folders, e.g. one per tar file you
+extracted separately; each wanted image is looked for in all of them:
 
     python scripts/resize_images.py extracted --src /data/recipe1M+_images --data data --out data/images256
+    python scripts/resize_images.py extracted --src /data/tar_a /data/tar_b /data/tar_0 --data data --out data/images256
     python scripts/resize_images.py extracted --src /data/recipe1M+_images --data data --in-place   # replaces the originals
+
+If the folders do not have the 0/f/a/8/ layout (an extra wrapper folder, a flat folder, ...), add --scan: it looks for the wanted
+file names anywhere below the --src folders. That walks every file once, which is slow on a big tree.
 
 Runs can be stopped and restarted: files that already exist in --out are skipped (use --overwrite to redo them).
 Names that were wanted but not found are written to <out>/missing.txt, unreadable images to <out>/failed.txt.
@@ -74,6 +79,19 @@ def shrink(source, size=256, quality=90):
         return out.getvalue()
 
 
+def scan_roots(roots, names):
+    """Walk the folders once and return {file name: path} for the wanted names (first one found wins)."""
+    found, stack = {}, list(roots)
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+                elif entry.name in names and entry.name not in found:
+                    found[entry.name] = entry.path
+    return found
+
+
 def already_small(path, size):
     try:
         with Image.open(path) as im:
@@ -92,11 +110,11 @@ def write_atomic(dest, payload):
 
 # ----------------------------------------------------------------------- from extracted files
 def _extracted_task(args):
-    name, src, out, size, quality, overwrite, in_place = args
-    source = layout_path(src, name)
-    if not os.path.exists(source):
+    name, srcs, known, out, size, quality, overwrite, in_place = args
+    source = known or next((p for p in (layout_path(r, name) for r in srcs) if os.path.exists(p)), None)
+    if source is None:
         return name, "missing"
-    dest = layout_path(out, name)
+    dest = source if in_place else layout_path(out, name)
     try:
         if in_place:
             if already_small(source, size):
@@ -109,8 +127,13 @@ def _extracted_task(args):
         return name, "failed"
 
 
-def run_extracted(names, src, out, size=256, quality=90, overwrite=False, in_place=False, workers=None, log=print):
-    tasks = ((n, src, out, size, quality, overwrite, in_place) for n in sorted(names))
+def run_extracted(names, src, out, size=256, quality=90, overwrite=False, in_place=False, workers=None, scan=False,
+                  log=print):
+    srcs = [src] if isinstance(src, str) else list(src)
+    found = scan_roots(srcs, frozenset(names)) if scan else {}
+    if scan:
+        log(f"scan: {len(found)} of {len(names)} wanted files found")
+    tasks = ((n, srcs, found.get(n), out, size, quality, overwrite, in_place) for n in sorted(names))
     results = {"ok": 0, "skipped": 0, "missing": [], "failed": []}
     done = 0
     with multiprocessing.Pool(workers or os.cpu_count() or 1) as pool:
@@ -181,7 +204,8 @@ def parse_args(argv=None):
     t.add_argument("--tars", nargs="+", required=True, help="tar files (a shell glob such as Recipe1M+_*.tar works)")
     t.add_argument("--out", required=True)
     e = sub.add_parser("extracted", parents=[common], help="read from an extracted folder tree")
-    e.add_argument("--src", required=True)
+    e.add_argument("--src", required=True, nargs="+", help="one or several folders with the extracted images")
+    e.add_argument("--scan", action="store_true", help="find the wanted files anywhere below --src (any layout; slow)")
     group = e.add_mutually_exclusive_group(required=True)
     group.add_argument("--out")
     group.add_argument("--in-place", action="store_true")
@@ -199,8 +223,8 @@ def main(argv=None):
         out = a.out
         res = run_tars(names, tars, out, a.size, a.quality, a.overwrite, a.workers)
     else:
-        out = a.src if a.in_place else a.out
-        res = run_extracted(names, a.src, out, a.size, a.quality, a.overwrite, a.in_place, a.workers)
+        out = a.src[0] if a.in_place else a.out
+        res = run_extracted(names, a.src, out, a.size, a.quality, a.overwrite, a.in_place, a.workers, a.scan)
     os.makedirs(out, exist_ok=True)
     for key in ("missing", "failed"):
         if res[key]:

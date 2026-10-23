@@ -11,6 +11,8 @@ from synthetic import DIM, INGREDIENTS, write_w2v
 from trijoint import im2recipe
 from word2vec_io import ingredient_row_offset, load_word2vec_bin
 
+import train as train_script
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W2V_DIM = 6
 
@@ -172,3 +174,73 @@ def test_extra_rows_zero_uses_the_file_as_is(pipeline):
     opts = small_opts(pipeline, "--ingr_extra_rows", "0")
     _, expected = load_word2vec_bin(str(pipeline / "vocab.bin"))
     assert im2recipe(opts, pretrained=False).ingRNN_.embs.weight.shape[0] == len(expected)
+
+
+
+# ---------------------------------------------------------- memory: no gradient graphs, mixed precision
+class RecordingModel(torch.nn.Module):
+    """Stands in for the trijoint model and records whether autograd was on during each forward pass."""
+
+    def __init__(self):
+        super().__init__()
+        self.w = torch.nn.Parameter(torch.ones(1))
+        self.grad_enabled = []
+
+    def forward(self, img, instrs, itr_ln, ingrs, igr_ln):
+        self.grad_enabled.append(torch.is_grad_enabled())
+        e = img.flatten(1)[:, :3] * self.w
+        return e, e + 1.0, e.new_zeros(len(e), 5), e.new_zeros(len(e), 5)
+
+
+def fake_loader(n_batches=3, batch=4):
+    out = []
+    for b in range(n_batches):
+        inputs = [torch.randn(batch, 3, 2, 2), torch.zeros(batch, 20, 3), torch.ones(batch), torch.ones(batch, 20), torch.ones(batch)]
+        ids = [f"id{b}_{i}" for i in range(batch)]
+        out.append((inputs, [torch.ones(batch), ids, ids]))
+    return out
+
+
+def test_validation_and_testing_do_not_build_gradient_graphs(pipeline, tmp_path):
+    import test as test_script
+    opts = small_opts(pipeline, "--semantic_reg", "False", "--medr", "4", "--path_results", str(tmp_path / "res"))
+    device = torch.device("cpu")
+    model = RecordingModel()
+    train_script.validate(fake_loader(), model, None, opts, device)
+    assert model.grad_enabled == [False] * 3
+    model = RecordingModel()
+    test_script.test(fake_loader(), model, torch.nn.CosineEmbeddingLoss(), opts, device)
+    assert model.grad_enabled == [False] * 3
+    # training, in contrast, needs gradients
+    model = RecordingModel()
+    opt = torch.optim.SGD([{"params": [model.w]}, {"params": [torch.nn.Parameter(torch.ones(1))]}], lr=0.1)  # two groups, like the real one
+    (inputs, _), = fake_loader(1)
+    train_script.train([(inputs, [torch.ones(4)])], model, torch.nn.CosineEmbeddingLoss(), opt, 0, opts, device)  # training batches carry only the target
+    assert model.grad_enabled == [True]
+
+
+def test_bf16_mixed_precision_trains_and_validates(pipeline, tmp_path):
+    opts = small_opts(pipeline, "--epochs", "2", "--valfreq", "1", "--amp", "bf16", "--snapshots", str(tmp_path / "snaps"),
+                      "--path_results", str(tmp_path / "res"))
+    assert get_parser().parse_args([]).amp == "none"
+    with pytest.raises(SystemExit):
+        get_parser().parse_args(["--amp", "fp8"])
+    train_script.main(opts)
+    assert any(f.endswith(".safetensors") for f in os.listdir(tmp_path / "snaps"))  # validation ran and improved on inf
+
+
+def test_pin_memory_can_be_turned_off(pipeline, tmp_path, monkeypatch):
+    seen = []
+    real = torch.utils.data.DataLoader
+
+    class Recording(real):
+        def __init__(self, *a, **kw):
+            seen.append(kw.get("pin_memory"))
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(torch.utils.data, "DataLoader", Recording)
+    for flag, expected in (([], True), (["--no_pin_memory"], False)):
+        seen.clear()
+        train_script.main(small_opts(pipeline, "--epochs", "1", "--snapshots", str(tmp_path / "s"), *flag))
+        assert len(seen) == 2 and all(p is expected for p in seen)  # train and validation loaders
+

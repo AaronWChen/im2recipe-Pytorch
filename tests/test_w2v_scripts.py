@@ -4,6 +4,8 @@ import subprocess
 import sys
 
 import numpy as np
+import pytest
+pytest.importorskip("gensim", reason="pip install -r requirements.txt")
 
 from word2vec_io import load_word2vec_bin, write_vocab_txt
 

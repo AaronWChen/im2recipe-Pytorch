@@ -61,7 +61,7 @@ def save_checkpoint(path, model, optimizer, it, config, best):
     torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
                 "iter": it, "config": config, "best": best}, path)
     save_safetensors(os.path.splitext(path)[0] + ".safetensors", model.state_dict(),
-                     {"format": "skipinstr-v1", "config": config, "iter": it, "best": best})
+                     {"format": "skipinstructions-v1", "config": config, "iter": it, "best": best})
 
 
 def run(args):
@@ -125,7 +125,7 @@ def run(args):
             print(f"iter {it}  {'val' if val else 'train(trailing)'} loss {metric:.4f}  best {min(best, metric):.4f}")
             if metric < best:
                 best = metric
-                save_checkpoint(os.path.join(args.out_dir, "skipinstuctionsr-best.pt"), model, optimizer, it, config, best)
+                save_checkpoint(os.path.join(args.out_dir, "skipinstructions-best.pt"), model, optimizer, it, config, best)
         if it % args.save_every == 0:
             save_checkpoint(os.path.join(args.out_dir, "skipinstructions-last.pt"), model, optimizer, it, config, best)
 

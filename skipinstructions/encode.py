@@ -31,8 +31,9 @@ def load_model(checkpoint, device):
     else:
         ckpt = torch.load(checkpoint, map_location=device, weights_only=True)
         cfg, state = ckpt["config"], ckpt["model"]
-        model = UniSkip(cfg["vocab_size"], cfg["word_size"], cfg["thought_size"])
-        model.load_state_dict(state)
+
+    model = UniSkip(cfg["vocab_size"], cfg["word_size"], cfg["thought_size"])
+    model.load_state_dict(state)
     return model.to(device).eval(), cfg
 
 
@@ -52,7 +53,7 @@ def encode_corpus(model, corpus, batch_size, device, out_path, dtype=np.float32)
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--checkpoint", required=True,  help="skipinstr-best.safetensors or skipinstr-best.pt")
+    p.add_argument("--checkpoint", required=True, help="skipinstructions-best.safetensors or skipinstructions-best.pt")
     p.add_argument("--sentences", required=True)
     p.add_argument("--index", required=True, help="recipe index written by tokenize_instructions")
     p.add_argument("--out-prefix", required=True)

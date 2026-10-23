@@ -7,9 +7,11 @@ RUN apt-get -qq update && \
 COPY requirements.txt requirements.txt
 RUN pip --no-cache-dir install --upgrade cython && \
     pip --no-cache-dir install -r requirements.txt && \
-    pip --no-cache-dir install torchwordemb
+    # pip --no-cache-dir install torchwordemb
 WORKDIR /
 COPY scripts/ scripts/
 COPY *.py /
+COPY skipinstructions/ skipinstructions/
+COPY textenc/ textenc/
 
 ENTRYPOINT ["bash"]

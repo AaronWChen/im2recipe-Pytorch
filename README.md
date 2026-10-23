@@ -221,7 +221,7 @@ by joining on the recipe URL, and writes training text that never includes your 
 python scripts/sample_recipenlg.py data/recipenlg/full_dataset.csv --rows 5000 --out recipenlg_sample.csv
 
 python scripts/merge_recipenlg.py --recipenlg data/recipenlg/full_dataset.csv --layer1 data/recipe1M/layer1.json \
-    --out-dir data/recipenlg_merged
+--out-dir data/recipenlg_merged
 ```
 Outputs in `data/recipenlg_merged/`: `recipe_links.csv` (RecipeNLG row <-> Recipe1M id and partition, the key for joining everything built on Recipe1M),
 `lm_train.txt`, `lm_val.txt` (a 0.5% slice for the validation loss), `lm_holdout.txt` (the Recipe1M val/test recipes, never trained on) and `merge_stats.json`.

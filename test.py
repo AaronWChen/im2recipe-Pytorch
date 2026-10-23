@@ -1,3 +1,4 @@
+import os
 import time
 import torch
 import torch.nn as nn
@@ -63,11 +64,13 @@ def main(opts=None):
             normalize,
         ]),data_path=opts.data_path,sem_reg=opts.semantic_reg,partition='test'),
         batch_size=opts.batch_size, shuffle=False,
-        num_workers=opts.workers, pin_memory=True)
+        num_workers=opts.workers, pin_memory=not opts.no_pin_memory)
     print('Test loader prepared.')
 
     # run test
     test(test_loader, model, criterion, opts, device)
+
+@torch.no_grad()
 
 def test(test_loader, model, criterion, opts, device):
     batch_time = AverageMeter()
@@ -132,13 +135,14 @@ def test(test_loader, model, criterion, opts, device):
     else:
         print('* Test loss {losses.avg:.4f}'.format(losses=cos_losses))
 
-    with open(opts.path_results+'img_embeds.pkl', 'wb') as f:
+    os.makedirs(opts.path_results, exist_ok=True)
+    with open(os.path.join(opts.path_results, 'img_embeds.pkl'), 'wb') as f:
         pickle.dump(data0, f)
-    with open(opts.path_results+'rec_embeds.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'rec_embeds.pkl'), 'wb') as f:
         pickle.dump(data1, f)
-    with open(opts.path_results+'img_ids.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'img_ids.pkl'), 'wb') as f:
         pickle.dump(data2, f)
-    with open(opts.path_results+'rec_ids.pkl', 'wb') as f:
+    with open(os.path.join(opts.path_results, 'rec_ids.pkl'), 'wb') as f:
         pickle.dump(data3, f)
 
     return cos_losses.avg

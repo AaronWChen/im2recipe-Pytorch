@@ -23,9 +23,18 @@ def get_parser():
     parser.add_argument("--img_path", default="data/images/")
     parser.add_argument("--data_path", default="data/")
     parser.add_argument("--workers", default=30, type=int)
+    # an error from the DataLoader's pin-memory thread (cuMemHostAlloc, "out of memory") means the host could not lock memory for
+    # the batches, not that the GPU is full; this turns pinning off (slightly slower copies to the GPU). Seen under WSL.
+    parser.add_argument('--no_pin_memory', action='store_true')
+
 
     # model
-    parser.add_argument("--batch_size", default=160, type=int)
+    parser.add_argument(
+        "--batch_size", default=160, type=int
+    )  # 160 needs far more than 24 GB in fp32; try 64, or add --amp bf16
+    parser.add_argument(
+        "--amp", default="none", choices=["none", "bf16"]
+    )  # bfloat16 mixed precision: about half the activation memory
     parser.add_argument("--snapshots", default="snapshots/", type=str)
     # .safetensors holds the weights (+ epoch/best_val metadata) and loads without unpickling; .pth.tar also holds the
     # optimizer state, which --resume needs to continue exactly where training stopped

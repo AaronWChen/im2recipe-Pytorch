@@ -2,8 +2,10 @@ import csv
 import json
 import os
 
-import pandas as pd
 import pytest
+
+pytest.importorskip("pandas", reason="pip install -r requirements.txt")
+import pandas as pd
 
 import merge_recipenlg as M
 import sample_recipenlg

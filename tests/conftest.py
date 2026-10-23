@@ -1,12 +1,37 @@
 import os
 import sys
 
+# The tests check logic on tiny models; on a GPU machine they are slower, not better, and the GPU code path would be tested
+# by accident. Set IM2RECIPE_TEST_GPU=1 to leave the GPU visible.
+if not os.environ.get("IM2RECIPE_TEST_GPU"):
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 for p in (ROOT, os.path.join(ROOT, "scripts"), os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+
+def _check_checkout():
+    """The tests use features added to skipinstructions/ over time"""
+    import inspect
+
+    import skipinstructions.tokenize_instructions as tokenizer_module
+
+    if "raw" not in inspect.signature(tokenizer_module.process).parameters:
+        pytest.exit(
+            "The skipinstr package that Python imports is older than these tests:\n"
+            f"  {inspect.getfile(tokenizer_module)}\n"
+            "tokenize_instructions.process() has no `raw` option. Replace that folder with the one from "
+            "im2recipe-Pytorch-patched.zip (it must be named skipinstructions, as every import and the tests use that name), "
+            "and make sure no second, older copy is on the path.", returncode=2)
+
+
+_check_checkout()
+
 
 import build_dataset  # noqa: E402
 from recipe_store import RecipeStore  # noqa: E402

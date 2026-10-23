@@ -58,7 +58,7 @@ def encode_texts(model, tokenizer, texts, device="cpu", pooling="mean", max_leng
     if limit is not None and max_length > limit:
         raise ValueError(f"max_length {max_length} exceeds the model's {limit} positions")
     texts = [prefix + t + suffix for t in texts] if (prefix or suffix) else list(texts)
-    ids = tokenizer(list(texts), add_special_tokens=True, truncation=True, max_length=max_length)["input_ids"]
+    ids = tokenizer(texts, add_special_tokens=True, truncation=True, max_length=max_length)["input_ids"]
     fallback = pad_token_id(tokenizer)
     ids = [x if len(x) else [fallback] for x in ids]
     pad = pad_token_id(tokenizer)

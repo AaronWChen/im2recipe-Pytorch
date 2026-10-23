@@ -4,8 +4,11 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 W="${1:-$(mktemp -d)}"
-rm -rf "$W/repo" && mkdir -p "$W/repo" && cp -r "$REPO"/. "$W/repo" && cd "$W/repo"
-PY="${PYTHON:-python3}"
+# copy the code only: never your data, snapshots, runs, models or results folders (they can be many GB)
+rm -rf "$W/repo" && mkdir -p "$W/repo"
+tar -C "$REPO" --exclude=./data --exclude=./snapshots --exclude=./runs --exclude=./models --exclude=./results \
+    --exclude=./.git --exclude='__pycache__' --exclude=./.pytest_cache -cf - . | tar -C "$W/repo" -xf -
+cd "$W/repo"PY="${PYTHON:-python3}"
 mkdir -p data/recipe1M data/text
 $PY tests/synthetic.py data/recipe1M
 printf 'apple pie\n' > data/food101_classes_renamed.txt

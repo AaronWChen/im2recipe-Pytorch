@@ -1,6 +1,6 @@
-"""Convert a skipinstr .pt checkpoint to .safetensors (weights + config), e.g. for a model trained before this existed.
+"""Convert a skipinstructions .pt checkpoint to .safetensors (weights + config), e.g. for a model trained before this existed.
 
-    python -m skipinstr.export runs/skip1/skipinstr-best.pt          # -> runs/skip1/skipinstr-best.safetensors
+    python -m skipinstructions.export runs/skip1/skipinstructions-best.pt          # -> runs/skip1/skipinstructions-best.safetensors
 """
 import argparse
 import os
@@ -13,7 +13,7 @@ from safetensors_io import save_safetensors
 def export(pt_path, out_path=None):
     ckpt = torch.load(pt_path, map_location="cpu", weights_only=True)
     out_path = out_path or os.path.splitext(pt_path)[0] + ".safetensors"
-    save_safetensors(out_path, ckpt["model"], {"format": "skipinstr-v1", "config": ckpt["config"],
+    save_safetensors(out_path, ckpt["model"], {"format": "skipinstructions-v1", "config": ckpt["config"],
                                                "iter": ckpt.get("iter"), "best": ckpt.get("best")})
     return out_path
 

@@ -57,7 +57,7 @@ def _progress(iterable, **kw):
         return iterable
 
 
-def process(layer1_path, det_path, out_dir, partitions=("train", "val", "test"), lower=False, w2v_corpus=False):
+def process(layer1_path, det_path, out_dir, partitions=("train", "val", "test"), lower=False, w2v_corpus=False, raw=False):
     with open(det_path, "rt", encoding="utf-8") as f:
         det = {d["id"]: d for d in json.load(f)}
     with open(layer1_path, "rt", encoding="utf-8") as f:
@@ -67,6 +67,8 @@ def process(layer1_path, det_path, out_dir, partitions=("train", "val", "test"),
     sent = {p: open(os.path.join(out_dir, f"instructions_{p}.txt"), "wt", encoding="utf-8", newline="\n") for p in partitions}
     w2v = {p: open(os.path.join(out_dir, f"tokenized_instructions_{p}.txt"), "wt", encoding="utf-8", newline="\n")
            for p in partitions} if w2v_corpus else {}
+    raws = {p: open(os.path.join(out_dir, f"raw_instructions_{p}.txt"), "wt", encoding="utf-8", newline="\n")
+            for p in partitions} if raw else {}
     ids = {p: [] for p in partitions}
     rlens = {p: [] for p in partitions}
     word_counts = []  # words per instruction, train partition (for choosing --maxlen)
@@ -89,12 +91,15 @@ def process(layer1_path, det_path, out_dir, partitions=("train", "val", "test"),
                 sent[part].write(line + "\n")
             if part in w2v:
                 w2v[part].write("\t".join(lines) + "\n")
+            if part in raws:
+                for i in entry["instructions"]:
+                    raws[part].write(" ".join(i["text"].split()) + "\n")
             ids[part].append(entry["id"])
             rlens[part].append(len(lines))
             if part == "train":
                 word_counts.extend(len(line.split()) for line in lines)
     finally:
-        for f in list(sent.values()) + list(w2v.values()):
+        for f in list(sent.values()) + list(w2v.values()) + list(raws.values()):
             f.close()
 
     for p in partitions:
@@ -116,13 +121,14 @@ def parse_args(argv=None):
     p.add_argument("--partitions", nargs="+", default=["train", "val", "test"])
     p.add_argument("--lower", action="store_true", help="lowercase after ingredient joining (off by default, as in the original)")
     p.add_argument("--w2v-corpus", action="store_true", help="also write the recipe-per-line file for word2vec")
+    p.add_argument("--raw", action="store_true", help="also write raw_instructions_<part>.txt (plain text, for transformer encoders)")
     return p.parse_args(argv)
 
 
 def main(argv=None):
     a = parse_args(argv)
     process(os.path.join(a.dataset, "layer1.json"), os.path.join(a.dataset, "det_ingrs.json"),
-            a.out_dir, tuple(a.partitions), a.lower, a.w2v_corpus)
+            a.out_dir, tuple(a.partitions), a.lower, a.w2v_corpus, a.raw)
 
 
 if __name__ == "__main__":
