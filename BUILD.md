@@ -205,6 +205,11 @@ cd scripts
 python build_dataset.py
 cd ..
 ```
+
+If some images that the json lists are not in your image folders (see step 5b), add `--image-root /full/path/to/extracted/images [more folders]`: the build then keeps only images that exist
+(in their original order) and drops recipes left with none, so nothing trains on white placeholders. Use full paths, since the script runs from `scripts/`. The recipe counts shrink and no longer match the paper,
+so numbers are not directly comparable. Run step 5b afterwards, so the resized images match the new stores.
+
 Writes `data/{train,val,test}_store/`. Read the last two lines it prints. `filtered=` is normal (recipes without images, too many
 instructions or ingredients, or in `remove1M.txt`). `no_vectors=` and `count_mismatch=` should be 0; if not, steps 1 and 4
 were run on different data.
@@ -227,6 +232,9 @@ Each wanted image is looked for as `<src>/0/f/a/8/0fa8309c13.jpg` in every `--sr
 the wanted file names anywhere below the `--src` folders; it walks every file once, so expect it to take a while on a large tree.
 - It can be stopped and restarted: existing outputs are skipped (`--overwrite` redoes them). `<out>/missing.txt` and `failed.txt` list wanted images that were not found or could not be read; the loader substitutes a white image for those, so check the counts it prints.
 - `extracted ... --in-place` replaces the originals of the wanted images instead of writing a new tree, to free disk space. Try it on a copy first, since the originals cannot be recovered. After checking the result you can delete the rest of the extracted tree.
+- **Many images missing?** The script prints the missing share for each first character of the file name. A few characters near 100% mean whole tar files were not extracted (or sit in another folder: add them to `--src` or use `--scan`).
+  The same share for every character means the images are not in the folders at all, and then the cause is the image list rather than the extraction: `layer2.json` is Recipe1M's list, and the Recipe1M+ image tars
+  correspond to `layer2+.json` (the README says to replace one with the other for the extended dataset). Back up `layer2.json`, try `layer2+.json` under that name, and rerun `build_dataset.py`; it counts recipes without images as filtered.
 - `--all-images` also keeps the non-first images of val/test recipes; `--size` and `--quality` change the target.
 - Then train with `--img_path data/images256/`. Resizing in advance also removes most of the JPEG decoding cost, which makes training less dependent on the CPU count.
 

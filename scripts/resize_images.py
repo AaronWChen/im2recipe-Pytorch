@@ -26,6 +26,7 @@ Names that were wanted but not found are written to <out>/missing.txt, unreadabl
 --in-place overwrites the originals of the wanted images only (other files are left alone); a file already at or below
 --size is left as it is, so the command is safe to repeat. Test on a copy first: the originals are not recoverable.
 """
+
 import argparse
 import glob
 import io
@@ -65,7 +66,9 @@ def layout_path(root, name):
 # --------------------------------------------------------------------------------- resizing
 def shrink(source, size=256, quality=90):
     """Image file path or bytes -> JPEG bytes whose shorter side is at most `size`. Raises on unreadable images."""
-    with Image.open(io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source) as im:
+    with Image.open(
+        io.BytesIO(source) if isinstance(source, (bytes, bytearray)) else source
+    ) as im:
         w, h = im.size
         scale = size / min(w, h)
         if scale < 1:
@@ -77,6 +80,47 @@ def shrink(source, size=256, quality=90):
         out = io.BytesIO()
         im.save(out, format="JPEG", quality=quality)
         return out.getvalue()
+
+
+def missing_report(missing, wanted, srcs=()):
+    """Lines that show WHERE the missing images are, by the first character of their file names.
+
+    The four-level folders are named after the first four characters, and each tar file holds one first-level folder, so:
+    a few characters with (nearly) everything missing = those folders/tars were not extracted (or are somewhere else);
+    the same share missing for every character = the images are not in the folders at all.
+    """
+    from collections import Counter
+
+    wanted_by, missing_by = Counter(n[0] for n in wanted), Counter(
+        n[0] for n in missing
+    )
+    cells = [
+        f"{c}: {missing_by.get(c, 0)}/{wanted_by[c]} ({100 * missing_by.get(c, 0) / wanted_by[c]:.0f}%)"
+        for c in sorted(wanted_by)
+    ]
+    lines = ["missing / wanted, by the first character of the file name:"]
+    lines += ["  " + "   ".join(cells[i : i + 4]) for i in range(0, len(cells), 4)]
+    shares = [missing_by.get(c, 0) / wanted_by[c] for c in wanted_by]
+    if srcs:
+        absent = [
+            c
+            for c in sorted(missing_by)
+            if not any(os.path.isdir(os.path.join(r, c)) for r in srcs)
+        ]
+        if absent:
+            lines.append(
+                f"no folder named {', '.join(absent)} under the --src folder(s): extract the tar file(s) holding them, or add the folder they are in"
+            )
+    if missing and max(shares) >= 0.9 and min(shares) < 0.5:
+        lines.append(
+            "=> whole first-level folders are (nearly) empty: those tar files are missing, incomplete or extracted elsewhere (try --scan or add --src folders)"
+        )
+    elif missing and max(shares) - min(shares) < 0.15:
+        lines.append(
+            "=> the gap is spread evenly, so the extraction is probably fine: these images are simply not in the folders. Check that the image list "
+            "matches the images you have (layer2.json vs layer2+.json), see BUILD.md step 5b"
+        )
+    return lines
 
 
 def scan_roots(roots, names):
@@ -111,7 +155,9 @@ def write_atomic(dest, payload):
 # ----------------------------------------------------------------------- from extracted files
 def _extracted_task(args):
     name, srcs, known, out, size, quality, overwrite, in_place = args
-    source = known or next((p for p in (layout_path(r, name) for r in srcs) if os.path.exists(p)), None)
+    source = known or next(
+        (p for p in (layout_path(r, name) for r in srcs) if os.path.exists(p)), None
+    )
     if source is None:
         return name, "missing"
     dest = source if in_place else layout_path(out, name)
@@ -127,13 +173,26 @@ def _extracted_task(args):
         return name, "failed"
 
 
-def run_extracted(names, src, out, size=256, quality=90, overwrite=False, in_place=False, workers=None, scan=False,
-                  log=print):
+def run_extracted(
+    names,
+    src,
+    out,
+    size=256,
+    quality=90,
+    overwrite=False,
+    in_place=False,
+    workers=None,
+    scan=False,
+    log=print,
+):
     srcs = [src] if isinstance(src, str) else list(src)
     found = scan_roots(srcs, frozenset(names)) if scan else {}
     if scan:
         log(f"scan: {len(found)} of {len(names)} wanted files found")
-    tasks = ((n, srcs, found.get(n), out, size, quality, overwrite, in_place) for n in sorted(names))
+    tasks = (
+        (n, srcs, found.get(n), out, size, quality, overwrite, in_place)
+        for n in sorted(names)
+    )
     results = {"ok": 0, "skipped": 0, "missing": [], "failed": []}
     done = 0
     with multiprocessing.Pool(workers or os.cpu_count() or 1) as pool:
@@ -153,7 +212,9 @@ def _tar_task(args):
     path, wanted, out, size, quality, overwrite = args
     seen, ok, skipped, failed = set(), 0, 0, []
     with tarfile.open(path) as tar:
-        for member in tar:  # lazy: a seekable tar skips over the data of files we do not want
+        for (
+            member
+        ) in tar:  # lazy: a seekable tar skips over the data of files we do not want
             tar.members = []  # do not keep millions of headers in memory
             if not member.isfile():
                 continue
@@ -166,46 +227,85 @@ def _tar_task(args):
                 skipped += 1
                 continue
             try:
-                write_atomic(dest, shrink(tar.extractfile(member).read(), size, quality))
+                write_atomic(
+                    dest, shrink(tar.extractfile(member).read(), size, quality)
+                )
                 ok += 1
             except Exception:
                 failed.append(name)
     return path, seen, ok, skipped, failed
 
 
-def run_tars(names, tars, out, size=256, quality=90, overwrite=False, workers=None, log=print):
+def run_tars(
+    names, tars, out, size=256, quality=90, overwrite=False, workers=None, log=print
+):
     wanted = frozenset(names)
     tasks = [(t, wanted, out, size, quality, overwrite) for t in tars]
     results = {"ok": 0, "skipped": 0, "missing": [], "failed": []}
     seen = set()
-    with multiprocessing.Pool(min(workers or os.cpu_count() or 1, max(1, len(tars)))) as pool:
+    with multiprocessing.Pool(
+        min(workers or os.cpu_count() or 1, max(1, len(tars)))
+    ) as pool:
         for path, s, ok, skipped, failed in pool.imap_unordered(_tar_task, tasks):
             seen |= s
             results["ok"] += ok
             results["skipped"] += skipped
             results["failed"] += failed
-            log(f"{os.path.basename(path)}: {ok} written, {skipped} already there, {len(failed)} unreadable")
+            log(
+                f"{os.path.basename(path)}: {ok} written, {skipped} already there, {len(failed)} unreadable"
+            )
     results["missing"] = sorted(wanted - seen)
     return results
 
 
 # ------------------------------------------------------------------------------------- command line
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = p.add_subparsers(dest="mode", required=True)
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--data", default="data", help="folder with train_store/ val_store/ test_store/")
-    common.add_argument("--size", type=int, default=256, help="shorter side in pixels (default: what the loader resizes to)")
+    common.add_argument(
+        "--data", default="data", help="folder with train_store/ val_store/ test_store/"
+    )
+    common.add_argument(
+        "--size",
+        type=int,
+        default=256,
+        help="shorter side in pixels (default: what the loader resizes to)",
+    )
     common.add_argument("--quality", type=int, default=90, help="JPEG quality")
-    common.add_argument("--all-images", action="store_true", help="also keep the non-first images of val/test recipes")
+    common.add_argument(
+        "--all-images",
+        action="store_true",
+        help="also keep the non-first images of val/test recipes",
+    )
     common.add_argument("--overwrite", action="store_true")
     common.add_argument("--workers", type=int, default=None)
-    t = sub.add_parser("tars", parents=[common], help="read straight from the tar files")
-    t.add_argument("--tars", nargs="+", required=True, help="tar files (a shell glob such as Recipe1M+_*.tar works)")
+    t = sub.add_parser(
+        "tars", parents=[common], help="read straight from the tar files"
+    )
+    t.add_argument(
+        "--tars",
+        nargs="+",
+        required=True,
+        help="tar files (a shell glob such as Recipe1M+_*.tar works)",
+    )
     t.add_argument("--out", required=True)
-    e = sub.add_parser("extracted", parents=[common], help="read from an extracted folder tree")
-    e.add_argument("--src", required=True, nargs="+", help="one or several folders with the extracted images")
-    e.add_argument("--scan", action="store_true", help="find the wanted files anywhere below --src (any layout; slow)")
+    e = sub.add_parser(
+        "extracted", parents=[common], help="read from an extracted folder tree"
+    )
+    e.add_argument(
+        "--src",
+        required=True,
+        nargs="+",
+        help="one or several folders with the extracted images",
+    )
+    e.add_argument(
+        "--scan",
+        action="store_true",
+        help="find the wanted files anywhere below --src (any layout; slow)",
+    )
     group = e.add_mutually_exclusive_group(required=True)
     group.add_argument("--out")
     group.add_argument("--in-place", action="store_true")
@@ -216,23 +316,51 @@ def main(argv=None):
     a = parse_args(argv)
     names = wanted_names(a.data, a.all_images)
     if not names:
-        sys.exit(f"no image names found: is {a.data}/train_store there? (run scripts/build_dataset.py first)")
+        sys.exit(
+            f"no image names found: is {a.data}/train_store there? (run scripts/build_dataset.py first)"
+        )
     print(f"{len(names)} images wanted")
     if a.mode == "tars":
-        tars = [t for pattern in a.tars for t in (sorted(glob.glob(pattern)) or [pattern])]
+        tars = [
+            t for pattern in a.tars for t in (sorted(glob.glob(pattern)) or [pattern])
+        ]
         out = a.out
         res = run_tars(names, tars, out, a.size, a.quality, a.overwrite, a.workers)
     else:
         out = a.src[0] if a.in_place else a.out
-        res = run_extracted(names, a.src, out, a.size, a.quality, a.overwrite, a.in_place, a.workers, a.scan)
+        res = run_extracted(
+            names,
+            a.src,
+            out,
+            a.size,
+            a.quality,
+            a.overwrite,
+            a.in_place,
+            a.workers,
+            a.scan,
+        )
     os.makedirs(out, exist_ok=True)
     for key in ("missing", "failed"):
         if res[key]:
             with open(os.path.join(out, key + ".txt"), "w") as f:
                 f.write("\n".join(sorted(res[key])) + "\n")
-    print(f"written {res['ok']}, already done {res['skipped']}, missing {len(res['missing'])}, unreadable {len(res['failed'])}")
+    print(
+        f"written {res['ok']}, already done {res['skipped']}, missing {len(res['missing'])}, unreadable {len(res['failed'])}"
+    )
+
+    if res["missing"]:
+        print(
+            "\n".join(
+                missing_report(
+                    res["missing"], names, a.src if a.mode == "extracted" else ()
+                )
+            )
+        )
+
     if res["missing"] or res["failed"]:
-        print(f"see {out}/missing.txt and {out}/failed.txt; the loader replaces an image it cannot open with a white one")
+        print(
+            f"see {out}/missing.txt and {out}/failed.txt; the loader replaces an image it cannot open with a white one"
+        )
 
 
 if __name__ == "__main__":

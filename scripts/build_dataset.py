@@ -17,6 +17,7 @@ Recipes are skipped exactly as in mk_dataset.py: too many instructions or ingred
   * the removal file is a set lookup (the old dict lookup never removed its first entry)
   * recipes missing from the skip-instruction index, or whose instruction count disagrees with
     it, are skipped and counted instead of crashing / silently mis-slicing
+  * --image-root keeps only the images that exist in the folder(s) you give (your extracted images), and drops recipes left without any. Without it every image the json lists is trusted, and the loader substitutes a white image for each one it cannot open. Use it when some listed images are not in your image folders; the splits then differ from the published ones (fewer recipes), so numbers are not directly comparable with the paper.
 """
 
 import argparse
@@ -47,6 +48,10 @@ def _progress(iterable, **kw):
         return iterable
 
 
+def image_exists(roots, name):
+    return any(os.path.exists(os.path.join(root, *name[:4], name)) for root in roots)
+
+
 def load_skip(skip_dir, part):
     """(memmapped vectors, {recipe_id: (start, length)}) written by skipinstructions.encode."""
     with open(os.path.join(skip_dir, part + ".index.json")) as f:
@@ -73,6 +78,7 @@ def build(
     max_images=5,
     partitions=PARTITIONS,
     dtype=None,
+    image_roots=None,
 ):
     remove_ids = set()
     if remove_path and os.path.exists(remove_path):
@@ -105,6 +111,10 @@ def build(
     }
     skipped = {"filtered": 0, "no_vectors": 0, "count_mismatch": 0}
 
+    if image_roots:
+        skipped["no_available_image"] = 0
+    images_dropped = 0
+
     print("Assembling dataset.")
     for entry in _progress(dataset):
         part = entry["partition"]
@@ -123,6 +133,16 @@ def build(
         ):
             skipped["filtered"] += 1
             continue
+
+        if (
+            image_roots
+        ):  # keep, in their original order, the images that are really there
+            present = [im for im in imgs if image_exists(image_roots, im["id"])]
+            images_dropped += len(imgs) - len(present)
+            if not present:
+                skipped["no_available_image"] += 1
+                continue
+            imgs = present
 
         span = skip[part][1].get(entry["id"])
         if span is None:
@@ -164,6 +184,12 @@ def build(
         % tuple(len(rows[p]["ids"]) if p in rows else 0 for p in PARTITIONS)
     )
     print("Skipped: " + ", ".join(f"{k}={v}" for k, v in skipped.items()))
+
+    if image_roots:
+        print(
+            f"images listed but not found in --image-root: {images_dropped} (of the kept-so-far recipes' images)"
+        )
+
     if skipped["no_vectors"] or skipped["count_mismatch"]:
         print(
             "warning: some recipes passed the filters but had no usable skip-instruction vectors; "
@@ -197,6 +223,12 @@ def parse_args(argv=None):
     p.add_argument("--maxlen", type=int, default=20)
     p.add_argument("--max-images", type=int, default=5)
     p.add_argument(
+        "--image-root",
+        nargs="+",
+        default=None,
+        help="folder(s) with your extracted images (0/f/a/8/<name>.jpg): keep only images that exist there",
+    )
+    p.add_argument(
         "--partitions", nargs="+", default=list(PARTITIONS), choices=PARTITIONS
     )
     p.add_argument(
@@ -221,6 +253,7 @@ def main(argv=None):
         a.max_images,
         tuple(a.partitions),
         a.dtype,
+        a.image_root,
     )
 
 
